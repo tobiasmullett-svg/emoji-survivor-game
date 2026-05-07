@@ -66,6 +66,13 @@ export default function MainMenu() {
         >
           <Text style={s.btnTextSec}>📊 PROGRESS</Text>
         </Pressable>
+        <Pressable
+          onPress={() => router.push('/achievements')}
+          style={({ pressed }) => [s.btn, s.btnSecondary, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button" accessibilityLabel="Achievements"
+        >
+          <Text style={s.btnTextSec}>🏅 ACHIEVEMENTS</Text>
+        </Pressable>
         <Text style={s.version}>v1.0.0</Text>
       </SafeAreaView>
     </LinearGradient>

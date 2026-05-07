@@ -52,9 +52,12 @@ export default function HighScoresScreen() {
                 <Text style={s.rowEmoji}>{item?.emoji ?? '?'}</Text>
                 <View style={s.rowInfo}>
                   <Text style={s.rowName}>{item?.name ?? 'Unknown'}</Text>
-                  <Text style={s.rowSub}>Wave {item?.wave ?? 0} {'\u00B7'} {item?.kills ?? 0} kills</Text>
+                  <Text style={s.rowSub}>Wave {item?.wave ?? 0} {'\u00B7'} {item?.kills ?? 0} kills {'\u00B7'} {formatTime(item?.time ?? 0)}</Text>
                 </View>
-                <Text style={s.rowDate}>{item?.date ?? ''}</Text>
+                <View style={s.scoreBox}>
+                  <Text style={s.scoreText}>{item?.score ?? 0}</Text>
+                  <Text style={s.rowDate}>{item?.date ?? ''}</Text>
+                </View>
               </View>
             )}
           />
@@ -67,6 +70,13 @@ export default function HighScoresScreen() {
       </SafeAreaView>
     </LinearGradient>
   );
+}
+
+function formatTime(time: number): string {
+  const safeTime = Math.max(0, Math.floor(time));
+  const mm = String(Math.floor(safeTime / 60)).padStart(2, '0');
+  const ss = String(safeTime % 60).padStart(2, '0');
+  return `${mm}:${ss}`;
 }
 
 const s = StyleSheet.create({
@@ -84,6 +94,8 @@ const s = StyleSheet.create({
   rowInfo: { flex: 1 },
   rowName: { color: '#FFF', fontSize: 15, fontWeight: '600' },
   rowSub: { color: '#94A3B8', fontSize: 13, marginTop: 2 },
+  scoreBox: { alignItems: 'flex-end', marginLeft: 8 },
+  scoreText: { color: '#F59E0B', fontSize: 15, fontWeight: '800' },
   rowDate: { color: '#94A3B8', fontSize: 12 },
   clearBtn: { alignSelf: 'center', paddingVertical: 12, paddingHorizontal: 24, borderRadius: 12, backgroundColor: 'rgba(239,68,68,0.15)', marginTop: 16 },
   clearText: { color: '#EF4444', fontSize: 14, fontWeight: '700' },

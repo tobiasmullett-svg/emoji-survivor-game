@@ -105,6 +105,18 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const vMinY = camera.y - sh / 2 - 60;
   const vMaxY = camera.y + sh / 2 + 60;
   const vis = (x: number, y: number) => x >= vMinX && x <= vMaxX && y >= vMinY && y <= vMaxY;
+  const visRect = (x: number, y: number, width: number, height: number) => (
+    x + width >= vMinX && x <= vMaxX && y + height >= vMinY && y <= vMaxY
+  );
+  const visibleGridX = GRID_LINES.filter(x => x >= vMinX && x <= vMaxX);
+  const visibleGridY = GRID_LINES.filter(y => y >= vMinY && y <= vMaxY);
+  const visibleCurrents = CURRENTS.filter(current => visRect(current.x - 30, current.y - 30, current.width + 60, 60));
+  const visibleReefProps = REEF_PROPS.filter(prop => visRect(prop.x - 20, prop.y - 20, prop.size + 40, prop.size + 40));
+  const visibleStars = STARS.filter(star => vis(star.x, star.y));
+  const visibleBubbles = BUBBLES.filter(bubble => {
+    const y = ((bubble.y - frame * bubble.speed) % 1960 + 1960) % 1960 + 20;
+    return vis(bubble.x, y);
+  });
   const showCritFlash = state.hitStop > 0.06;
 
   return (
@@ -158,7 +170,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
               })}
             </View>
           ))}
-          {CURRENTS.map(current => (
+          {visibleCurrents.map(current => (
             <View
               key={`cur-${current.id}`}
               style={[
@@ -176,7 +188,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
               ]}
             />
           ))}
-          {REEF_PROPS.map(prop => (
+          {visibleReefProps.map(prop => (
             <Text
               key={`reef-${prop.id}`}
               style={[
@@ -192,7 +204,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
               {prop.emoji}
             </Text>
           ))}
-          {BUBBLES.map(bubble => {
+          {visibleBubbles.map(bubble => {
             const y = ((bubble.y - frame * bubble.speed) % 1960 + 1960) % 1960 + 20;
             return (
               <View
@@ -233,9 +245,9 @@ export default function GameCanvas({ gameState, frame }: Props) {
               />
             );
           })}
-          {GRID_LINES.map(x => <View key={`vx-${x}`} style={[s.gridLineV, { left: x, height: arena.height }]} />)}
-          {GRID_LINES.map(y => <View key={`hy-${y}`} style={[s.gridLineH, { top: y, width: arena.width }]} />)}
-          {STARS.map(star => (
+          {visibleGridX.map(x => <View key={`vx-${x}`} style={[s.gridLineV, { left: x, height: arena.height }]} />)}
+          {visibleGridY.map(y => <View key={`hy-${y}`} style={[s.gridLineH, { top: y, width: arena.width }]} />)}
+          {visibleStars.map(star => (
             <View
               key={star.id}
               style={[
@@ -702,7 +714,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
         {/* Death particles */}
-        {(deathParticles ?? []).map(dp => {
+        {(deathParticles ?? []).filter(dp => vis(dp.x, dp.y)).map(dp => {
           const prog = 1 - (dp.t / dp.maxT);
           return (
             <Text
@@ -724,7 +736,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
         {/* Damage numbers */}
-        {(dmgNums ?? []).map(d => {
+        {(dmgNums ?? []).filter(d => vis(d.x, d.y)).map(d => {
           const prog = 1 - (d.t / d.maxT);
           return (
             <Text key={d.id} style={[s.dmgNum, {

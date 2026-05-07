@@ -1,5 +1,7 @@
 // Simple Web Audio API synthesizer for game SFX
 // No external assets needed — generates sounds procedurally
+import { Platform } from 'react-native';
+import * as Haptics from 'expo-haptics';
 
 type SoundName = 
   | 'shoot' | 'shootFast' | 'shootHeavy' | 'melee'
@@ -11,16 +13,48 @@ type SoundName =
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
 let muted = false;
+let lastNativeCue = 0;
 
 function getCtx(): AudioContext | null {
-  if (typeof window === 'undefined') return null;
+  if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
   if (!ctx) {
-    ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContextCtor = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextCtor) return null;
+    ctx = new AudioContextCtor();
     masterGain = ctx.createGain();
     masterGain.gain.value = 0.15;
     masterGain.connect(ctx.destination);
   }
   return ctx;
+}
+
+function playNativeCue(name: SoundName): void {
+  if (muted || Platform.OS === 'web') return;
+  const now = Date.now();
+  if (now - lastNativeCue < 45) return;
+  lastNativeCue = now;
+
+  if (name === 'error') {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {});
+    return;
+  }
+  if (name === 'levelup' || name === 'evolve' || name === 'victory') {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    return;
+  }
+  if (name === 'gameOver' || name === 'bossWarning') {
+    void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Warning).catch(() => {});
+    return;
+  }
+  if (name === 'crit' || name === 'explosion' || name === 'shootHeavy') {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
+    return;
+  }
+  if (name === 'hit' || name === 'melee' || name === 'kill' || name === 'ability') {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    return;
+  }
+  void Haptics.selectionAsync().catch(() => {});
 }
 
 function playOsc(freq: number, type: OscillatorType, duration: number, gain: number, slideTo?: number): void {
@@ -61,6 +95,10 @@ function playNoise(duration: number, gain: number): void {
 }
 
 export function playSound(name: SoundName): void {
+  if (Platform.OS !== 'web') {
+    playNativeCue(name);
+    return;
+  }
   switch (name) {
     case 'shoot':
       playOsc(800, 'square', 0.08, 0.3, 400);
