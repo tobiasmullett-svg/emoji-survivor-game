@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -9,6 +9,7 @@ import { getAllSkins, getSkinUnlockLabel } from '../engine/skins';
 
 export default function ProgressionScreen() {
   const router = useRouter();
+  const scrollRef = useRef<ScrollView>(null);
   const [prog, setProg] = useState<ProgressionData | null>(null);
   const [unlockedCount, setUnlockedCount] = useState(0);
 
@@ -17,6 +18,10 @@ export default function ProgressionScreen() {
       getProgression().then(setProg).catch(() => {});
     });
     getUnlockedAchievements().then(a => setUnlockedCount(a.length)).catch(() => {});
+    const scrollTimer = setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    }, 0);
+    return () => clearTimeout(scrollTimer);
   }, []);
 
   const handleBuy = async (key: BonusKey) => {
@@ -53,7 +58,7 @@ export default function ProgressionScreen() {
           <View style={{ width: 40 }} />
         </View>
 
-        <ScrollView contentContainerStyle={s.content}>
+        <ScrollView ref={scrollRef} contentContainerStyle={s.content}>
           {/* Stats */}
           <View style={s.statsCard}>
             <Text style={s.pearlText}>🐚 {prog?.pearls ?? 0} Pearls</Text>

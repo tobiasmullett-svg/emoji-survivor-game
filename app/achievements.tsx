@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
@@ -7,10 +7,15 @@ import { ACHIEVEMENTS, getAchievementProgress, type AchievementProgress } from '
 
 export default function AchievementsScreen() {
   const router = useRouter();
+  const scrollRef = useRef<ScrollView>(null);
   const [progress, setProgress] = useState<Record<string, AchievementProgress>>({});
 
   useEffect(() => {
     getAchievementProgress().then(setProgress).catch(() => {});
+    const scrollTimer = setTimeout(() => {
+      scrollRef.current?.scrollTo({ y: 0, animated: false });
+    }, 0);
+    return () => clearTimeout(scrollTimer);
   }, []);
 
   const unlockedCount = ACHIEVEMENTS.filter(achievement => progress[achievement.id]?.unlocked).length;
@@ -31,7 +36,7 @@ export default function AchievementsScreen() {
           <Text style={s.summaryLabel}>Unlocked</Text>
         </View>
 
-        <ScrollView contentContainerStyle={s.list}>
+        <ScrollView ref={scrollRef} contentContainerStyle={s.list}>
           {ACHIEVEMENTS.map(achievement => {
             const itemProgress = progress[achievement.id];
             const unlocked = Boolean(itemProgress?.unlocked);
