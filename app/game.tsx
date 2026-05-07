@@ -36,6 +36,11 @@ const defaultHud: HudData = {
 
 const DEFAULT_CHARACTER: CharacterId = 'crab';
 
+interface PhaseState {
+  runKey: string;
+  phase: GamePhase;
+}
+
 function getRouteCharacterId(value: string | string[] | undefined): string | undefined {
   return Array.isArray(value) ? value[0] : value;
 }
@@ -73,7 +78,7 @@ export default function GameScreen() {
   const keysRef = useRef<Set<string>>(new Set());
   const phaseRef = useRef<GamePhase>('waveAnnounce');
   const [frame, setFrame] = useState(0);
-  const [phase, setPhase] = useState<GamePhase>('waveAnnounce');
+  const [phaseState, setPhaseState] = useState<PhaseState>({ runKey: currentRunKey, phase: 'waveAnnounce' });
   const [hudData, setHudData] = useState<HudData>(defaultHud);
   const [achievementToast, setAchievementToast] = useState<Achievement[]>([]);
   const [runAchievements, setRunAchievements] = useState<Achievement[]>([]);
@@ -81,6 +86,7 @@ export default function GameScreen() {
   const scoreSaved = useRef(false);
   const achievementsChecked = useRef(false);
   const isCurrentRunInitialized = initializedRunKey === currentRunKey && gameRef.current !== null;
+  const phase = phaseState.runKey === currentRunKey ? phaseState.phase : 'waveAnnounce';
 
   // Auto-hide achievement toast
   useEffect(() => {
@@ -97,7 +103,7 @@ export default function GameScreen() {
     setInitializedRunKey(null);
     gameRef.current = null;
     phaseRef.current = 'waveAnnounce';
-    setPhase('waveAnnounce');
+    setPhaseState({ runKey: currentRunKey, phase: 'waveAnnounce' });
     setHudData(defaultHud);
     scoreSaved.current = false;
     achievementsChecked.current = false;
@@ -140,7 +146,7 @@ export default function GameScreen() {
         if (renderCt % 6 === 0) setHudData(extractHudData(state));
         if (state.phase !== phaseRef.current) {
           phaseRef.current = state.phase;
-          setPhase(state.phase);
+          setPhaseState({ runKey: currentRunKey, phase: state.phase });
           setHudData(extractHudData(state));
           // Phase change sounds
           if (state.phase === 'waveAnnounce') {
@@ -170,7 +176,7 @@ export default function GameScreen() {
       state.sh = window.height;
     });
     return () => sub.remove();
-  }, []);
+  }, [currentRunKey]);
 
   // Save high score + progression + achievements on game over
   useEffect(() => {
@@ -228,25 +234,25 @@ export default function GameScreen() {
       if (state && (state.phase === 'playing' || state.phase === 'waveAnnounce')) {
         pauseGame(state);
         phaseRef.current = 'paused';
-        setPhase('paused');
+        setPhaseState({ runKey: currentRunKey, phase: 'paused' });
         return true;
       }
       return false;
     });
     return () => sub.remove();
-  }, []);
+  }, [currentRunKey]);
 
   const handleInput = useCallback((v: Vec2) => { inputRef.current = v; }, []);
 
   const handlePause = useCallback(() => {
     const state = gameRef.current;
-    if (state) { pauseGame(state); phaseRef.current = 'paused'; setPhase('paused'); }
-  }, []);
+    if (state) { pauseGame(state); phaseRef.current = 'paused'; setPhaseState({ runKey: currentRunKey, phase: 'paused' }); }
+  }, [currentRunKey]);
 
   const handleResume = useCallback(() => {
     const state = gameRef.current;
-    if (state) { resumeGame(state); phaseRef.current = state.phase; setPhase(state.phase); }
-  }, []);
+    if (state) { resumeGame(state); phaseRef.current = state.phase; setPhaseState({ runKey: currentRunKey, phase: state.phase }); }
+  }, [currentRunKey]);
 
   const handleRestart = useCallback(() => {
     const { width, height } = Dimensions.get('window');
@@ -255,7 +261,7 @@ export default function GameScreen() {
     setInitializedRunKey(null);
     gameRef.current = null;
     phaseRef.current = 'waveAnnounce';
-    setPhase('waveAnnounce');
+    setPhaseState({ runKey: currentRunKey, phase: 'waveAnnounce' });
     setHudData(defaultHud);
     scoreSaved.current = false;
     achievementsChecked.current = false;
@@ -286,19 +292,19 @@ export default function GameScreen() {
     if (state) {
       applyLevelUpChoice(state, idx);
       phaseRef.current = state.phase;
-      setPhase(state.phase);
+      setPhaseState({ runKey: currentRunKey, phase: state.phase });
     }
-  }, []);
+  }, [currentRunKey]);
 
   const handleNextWave = useCallback(() => {
     const state = gameRef.current;
     if (state) {
       startNextWave(state);
       phaseRef.current = state.phase;
-      setPhase(state.phase);
+      setPhaseState({ runKey: currentRunKey, phase: state.phase });
       setHudData(extractHudData(state));
     }
-  }, []);
+  }, [currentRunKey]);
 
   const handleRetry = useCallback(() => router.replace('/character-select'), [router]);
   const handleMenu = useCallback(() => router.replace('/'), [router]);
