@@ -24,6 +24,7 @@ import PauseOverlay from '../components/game/PauseOverlay';
 import LevelUpModal from '../components/game/LevelUpModal';
 import ShopOverlay from '../components/game/ShopOverlay';
 import GameOverOverlay from '../components/game/GameOverOverlay';
+import { BOSS_WAVES } from '../engine/constants';
 
 const defaultHud: HudData = {
   hp: 100, maxHp: 100, armor: 0, waveNum: 1, waveTimer: 25, waveMaxTime: 25,
@@ -151,7 +152,7 @@ export default function GameScreen() {
           // Phase change sounds
           if (state.phase === 'waveAnnounce') {
             const wave = state.wave.number;
-            if ([5, 10, 15, 20].includes(wave)) {
+            if (BOSS_WAVES.includes(wave)) {
               playSound('bossWarning');
             } else {
               playSound('waveStart');
@@ -367,18 +368,19 @@ export default function GameScreen() {
   return (
     <View style={s.container}>
       <GameCanvas gameState={activeGameRef} frame={frame} />
-      {activePhase === 'waveAnnounce' && (
-        <>
-          {BOSS_WAVE_CHECK(activeHudData?.waveNum) && (
-            <View style={s.bossDarken} pointerEvents="none" />
-          )}
-          <View style={s.announce} pointerEvents="none">
-            <Text style={[s.announceText, BOSS_WAVE_CHECK(activeHudData?.waveNum) && s.bossAnnounceText]}>
-              {BOSS_WAVE_CHECK(activeHudData?.waveNum) ? '\u26A0\uFE0F BOSS INCOMING' : `WAVE ${activeHudData?.waveNum ?? 1}`}
-            </Text>
-          </View>
-        </>
-      )}
+      {activePhase === 'waveAnnounce' && (() => {
+        const isBoss = BOSS_WAVES.includes(activeHudData?.waveNum ?? 0);
+        return (
+          <>
+            {isBoss && <View style={s.bossDarken} pointerEvents="none" />}
+            <View style={s.announce} pointerEvents="none">
+              <Text style={[s.announceText, isBoss && s.bossAnnounceText]}>
+                {isBoss ? '\u26A0\uFE0F BOSS INCOMING' : `WAVE ${activeHudData?.waveNum ?? 1}`}
+              </Text>
+            </View>
+          </>
+        );
+      })()}
       {activePhase === 'collecting' && (
         <View style={s.announce} pointerEvents="none">
           <Text style={[s.announceText, { color: '#22C55E' }]}>WAVE COMPLETE!</Text>
@@ -442,10 +444,6 @@ export default function GameScreen() {
       )}
     </View>
   );
-}
-
-function BOSS_WAVE_CHECK(wave: number | undefined): boolean {
-  return [5, 10, 15, 20].includes(wave ?? 0);
 }
 
 const s = StyleSheet.create({

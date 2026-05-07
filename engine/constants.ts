@@ -67,25 +67,27 @@ export const PRICE_INFLATION = 0.1;
 export const COLLECT_TIME = 2;
 export const ANNOUNCE_TIME = 1.5;
 
-export const RARITY_COLORS: Record<string, string> = {
+import type { Rarity } from './types';
+
+export const RARITY_COLORS: Record<Rarity, string> = {
   common: COLORS.rarityCommon,
   uncommon: COLORS.rarityUncommon,
   rare: COLORS.rarityRare,
   legendary: COLORS.rarityLegendary,
 };
 
-export const BASE_PRICES: Record<string, number> = {
+export const BASE_PRICES: Record<Rarity, number> = {
   common: 10,
   uncommon: 25,
   rare: 50,
   legendary: 100,
 };
 
-export const RARITY_WPN_MULT: Record<string, number> = {
+export const RARITY_WPN_MULT: Record<Rarity, number> = {
   common: 1, uncommon: 1.3, rare: 1.6, legendary: 2,
 };
 
-export const RARITY_ITEM_MULT: Record<string, number> = {
+export const RARITY_ITEM_MULT: Record<Rarity, number> = {
   common: 1, uncommon: 1.5, rare: 2.5, legendary: 4,
 };
 
