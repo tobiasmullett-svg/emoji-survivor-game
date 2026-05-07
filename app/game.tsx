@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { View, Text, StyleSheet, Dimensions, BackHandler, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
+import { useIsFocused } from '@react-navigation/native';
 import type { GameState, GamePhase, HudData, CharacterId } from '../engine/types';
 import { Vec2 } from '../engine/math';
 import {
@@ -67,6 +68,7 @@ function resolvePlayableSkinId(requestedSkinId: string | undefined, characterId:
 export default function GameScreen() {
   useKeepAwake();
   const router = useRouter();
+  const isFocused = useIsFocused();
   const { characterId, skinId, runId } = useLocalSearchParams<{ characterId?: string | string[]; skinId?: string | string[]; runId?: string | string[] }>();
   const routeCharacterId = getRouteCharacterId(characterId);
   const routeSkinId = getRouteCharacterId(skinId);
@@ -85,8 +87,13 @@ export default function GameScreen() {
   const [initializedRunKey, setInitializedRunKey] = useState<string | null>(null);
   const scoreSaved = useRef(false);
   const achievementsChecked = useRef(false);
+  const isFocusedRef = useRef(isFocused);
   const isCurrentRunInitialized = initializedRunKey === currentRunKey && gameRef.current !== null;
   const phase = phaseState.runKey === currentRunKey ? phaseState.phase : 'waveAnnounce';
+
+  useEffect(() => {
+    isFocusedRef.current = isFocused;
+  }, [isFocused]);
 
   // Auto-hide achievement toast
   useEffect(() => {
@@ -96,6 +103,7 @@ export default function GameScreen() {
   }, [achievementToast]);
 
   useEffect(() => {
+    if (!isFocused) return;
     let cancelled = false;
     const { width, height } = Dimensions.get('window');
     const requestedCharacter = routeCharacterId;
@@ -132,7 +140,7 @@ export default function GameScreen() {
       const dt = lastTs === 0 ? 0.016 : Math.min((ts - lastTs) / 1000, 0.05);
       lastTs = ts;
       const state = gameRef.current;
-      if (state) {
+      if (state && isFocusedRef.current) {
         if (__DEV__ && Platform.OS === 'web') {
           (globalThis as any).__emojiState = state;
           (globalThis as any).__emojiTick = renderCt;
@@ -166,7 +174,7 @@ export default function GameScreen() {
       cancelled = true;
       cancelAnimationFrame(animationFrameId);
     };
-  }, [currentRunKey]);
+  }, [currentRunKey, isFocused]);
 
   useEffect(() => {
     const sub = Dimensions.addEventListener('change', ({ window }) => {
@@ -180,6 +188,7 @@ export default function GameScreen() {
 
   // Save high score + progression + achievements on game over
   useEffect(() => {
+    if (!isFocused) return;
     if (!isCurrentRunInitialized) return;
     if (phase === 'gameover' && !scoreSaved.current) {
       scoreSaved.current = true;
@@ -224,7 +233,7 @@ export default function GameScreen() {
         playSound(state.victory ? 'victory' : 'gameOver');
       }
     }
-  }, [phase, isCurrentRunInitialized, currentRunKey, initializedRunKey]);
+  }, [phase, isFocused, isCurrentRunInitialized, currentRunKey, initializedRunKey]);
 
   // Back button
   useEffect(() => {
@@ -358,11 +367,12 @@ export default function GameScreen() {
     };
   }, [handleAbility, handlePause, handleResume]);
 
-  const activePhase = isCurrentRunInitialized ? phase : 'waveAnnounce';
-  const activeHudData = isCurrentRunInitialized ? hudData : defaultHud;
-  const activeGameRef = isCurrentRunInitialized ? gameRef : emptyGameRef;
+  const canRenderActiveRun = isFocused && isCurrentRunInitialized;
+  const activePhase = canRenderActiveRun ? phase : isFocused ? 'waveAnnounce' : null;
+  const activeHudData = canRenderActiveRun ? hudData : defaultHud;
+  const activeGameRef = canRenderActiveRun ? gameRef : emptyGameRef;
   const isGameplay = activePhase === 'playing' || activePhase === 'waveAnnounce' || activePhase === 'collecting';
-  const state = isCurrentRunInitialized ? gameRef.current : null;
+  const state = canRenderActiveRun ? gameRef.current : null;
 
   return (
     <View style={s.container}>
@@ -415,7 +425,7 @@ export default function GameScreen() {
         <ShopOverlay gameState={gameRef} onNextWave={handleNextWave} />
       )}
       {/* Achievement toasts */}
-      {isCurrentRunInitialized && achievementToast.length > 0 && (
+      {canRenderActiveRun && achievementToast.length > 0 && (
         <View style={s.achievementToast}>
           <Text style={s.achievementEmoji}>{achievementToast[0].emoji}</Text>
           <View>
