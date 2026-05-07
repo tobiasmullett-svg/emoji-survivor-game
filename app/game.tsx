@@ -13,7 +13,10 @@ import { saveHighScore } from '../services/storage';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS } from '../engine/data';
 import { playSound, resumeAudio } from '../services/audio';
 import { addRunToProgression, getProgression } from '../engine/progression';
-import { checkAchievements, type Achievement } from '../engine/achievements';
+import {
+  checkAchievements, checkAchievementsLive, persistUnlockedAchievements,
+  getAchievementProgress, type Achievement,
+} from '../engine/achievements';
 import { calculateRunScore } from '../engine/scoring';
 import { getDefaultSkinId, getSkinById, getSkinEmoji } from '../engine/skins';
 import GameCanvas from '../components/game/GameCanvas';
@@ -87,11 +90,12 @@ export default function GameScreen() {
   const achievementsChecked = useRef(false);
   const isCurrentRunInitialized = initializedRunKey === currentRunKey && gameRef.current !== null;
   const phase = phaseState.runKey === currentRunKey ? phaseState.phase : 'waveAnnounce';
+  const unlockedSetRef = useRef<Set<string>>(new Set());
 
-  // Auto-hide achievement toast
+  // Show one achievement toast at a time, queued.
   useEffect(() => {
     if (achievementToast.length === 0) return;
-    const timer = setTimeout(() => setAchievementToast([]), 4000);
+    const timer = setTimeout(() => setAchievementToast(prev => prev.slice(1)), 4000);
     return () => clearTimeout(timer);
   }, [achievementToast]);
 
@@ -109,6 +113,13 @@ export default function GameScreen() {
     achievementsChecked.current = false;
     setAchievementToast([]);
     setRunAchievements([]);
+    unlockedSetRef.current = new Set();
+    getAchievementProgress().then(progress => {
+      if (cancelled) return;
+      unlockedSetRef.current = new Set(
+        Object.keys(progress).filter(id => progress[id]?.unlocked)
+      );
+    }).catch(() => {});
     getProgression().then(prog => {
       if (cancelled) return;
       const selectedCharacter = resolvePlayableCharacterId(requestedCharacter, prog.unlockedCharacters);
@@ -144,6 +155,26 @@ export default function GameScreen() {
         renderCt++;
         if (renderCt % 2 === 0) setFrame(f => f + 1);
         if (renderCt % 6 === 0) setHudData(extractHudData(state));
+        // Live achievement check, throttled to once per ~1s of frames.
+        if (renderCt % 60 === 0 && (ph === 'playing' || ph === 'collecting')) {
+          const elapsed = Math.round((Date.now() - state.stats.startTime) / 1000);
+          const newlyUnlocked = checkAchievementsLive({
+            wave: state.wave.number,
+            kills: state.stats.enemiesKilled,
+            damageDealt: state.stats.damageDealt,
+            materials: state.materials,
+            time: elapsed,
+            comboBest: state.combo.best,
+            elitesKilled: state.stats.elitesKilled,
+            evolvedWeapons: state.stats.weaponsEvolved,
+            noHitRun: !state.stats.wasHit,
+          }, unlockedSetRef.current);
+          if (newlyUnlocked.length > 0) {
+            persistUnlockedAchievements(newlyUnlocked).catch(() => {});
+            setAchievementToast(prev => [...prev, ...newlyUnlocked]);
+            setRunAchievements(prev => [...prev, ...newlyUnlocked]);
+          }
+        }
         if (state.phase !== phaseRef.current) {
           phaseRef.current = state.phase;
           setPhaseState({ runKey: currentRunKey, phase: state.phase });
@@ -214,8 +245,10 @@ export default function GameScreen() {
             noHitRun: !state.stats.wasHit,
           }).then(newOnes => {
             if (newOnes.length > 0) {
-              setAchievementToast(newOnes);
-              setRunAchievements(newOnes);
+              // Merge with any already-toasted-during-run achievements so
+              // the game-over screen lists them all.
+              setAchievementToast(prev => [...prev, ...newOnes]);
+              setRunAchievements(prev => [...prev, ...newOnes]);
             }
           }).catch(() => {});
         }

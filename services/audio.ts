@@ -3,6 +3,8 @@
 import { Platform } from 'react-native';
 import * as Haptics from 'expo-haptics';
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
+
 type SoundName = 
   | 'shoot' | 'shootFast' | 'shootHeavy' | 'melee'
   | 'hit' | 'crit' | 'kill' | 'explosion'
@@ -10,10 +12,20 @@ type SoundName =
   | 'waveStart' | 'bossWarning' | 'gameOver' | 'victory'
   | 'ability' | 'shopBuy' | 'evolve' | 'error';
 
+const SETTINGS_KEY = 'emoji_survivor_audio';
+const DEFAULT_VOLUME = 0.5; // 0..1, scales the underlying ~0.15 master gain
+const BASE_GAIN = 0.15;
+
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;
 let muted = false;
 let lastNativeCue = 0;
+let volume = DEFAULT_VOLUME;
+let settingsLoaded = false;
+
+function effectiveGain(): number {
+  return muted ? 0 : BASE_GAIN * volume;
+}
 
 function getCtx(): AudioContext | null {
   if (Platform.OS !== 'web' || typeof window === 'undefined') return null;
@@ -22,7 +34,7 @@ function getCtx(): AudioContext | null {
     if (!AudioContextCtor) return null;
     ctx = new AudioContextCtor();
     masterGain = ctx.createGain();
-    masterGain.gain.value = 0.15;
+    masterGain.gain.value = effectiveGain();
     masterGain.connect(ctx.destination);
   }
   return ctx;
@@ -178,16 +190,43 @@ export function playSound(name: SoundName): void {
 
 export function setMuted(value: boolean): void {
   muted = value;
-  if (masterGain) {
-    masterGain.gain.value = muted ? 0 : 0.15;
-  }
+  if (masterGain) masterGain.gain.value = effectiveGain();
+  void AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ muted, volume })).catch(() => {});
 }
 
 export function isMuted(): boolean {
   return muted;
 }
 
+export function setVolume(value: number): void {
+  volume = Math.max(0, Math.min(1, value));
+  if (masterGain) masterGain.gain.value = effectiveGain();
+  void AsyncStorage.setItem(SETTINGS_KEY, JSON.stringify({ muted, volume })).catch(() => {});
+}
+
+export function getVolume(): number {
+  return volume;
+}
+
+// Loads persisted mute + volume. Safe to call multiple times — only loads
+// once. Should be invoked early in app boot (called by resumeAudio()).
+export async function loadAudioSettings(): Promise<void> {
+  if (settingsLoaded) return;
+  settingsLoaded = true;
+  try {
+    const raw = await AsyncStorage.getItem(SETTINGS_KEY);
+    if (!raw) return;
+    const parsed = JSON.parse(raw) as { muted?: boolean; volume?: number };
+    if (typeof parsed.muted === 'boolean') muted = parsed.muted;
+    if (typeof parsed.volume === 'number') volume = Math.max(0, Math.min(1, parsed.volume));
+    if (masterGain) masterGain.gain.value = effectiveGain();
+  } catch {
+    // Silently fall back to defaults
+  }
+}
+
 export function resumeAudio(): void {
+  void loadAudioSettings();
   if (ctx && ctx.state === 'suspended') {
     ctx.resume();
   }
