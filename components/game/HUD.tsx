@@ -76,6 +76,13 @@ export default function HUD({ data, onPause }: Props) {
           <Text style={s.modifierText}>{MODIFIER_NAMES[data.waveModifier] ?? data.waveModifier}</Text>
         </View>
       )}
+      {(data?.petSynergies?.length ?? 0) > 0 && (
+        <View style={s.synergyPill}>
+          {data.petSynergies!.map(syn => (
+            <Text key={syn.kind} style={s.synergyPillText}>⚡{syn.bonusPct}%</Text>
+          ))}
+        </View>
+      )}
     </View>
   );
 }
@@ -115,4 +122,6 @@ const s = StyleSheet.create({
   objectiveText: { color: '#BAE6FD', fontSize: 11, fontWeight: '800' },
   modifierBanner: { position: 'absolute', top: 100, alignSelf: 'center', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 12, backgroundColor: 'rgba(245,158,11,0.2)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.5)' },
   modifierText: { color: '#F59E0B', fontSize: 13, fontWeight: '800', textTransform: 'capitalize' },
+  synergyPill: { position: 'absolute', right: 12, top: 78, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: 'rgba(99,102,241,0.16)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.35)', flexDirection: 'row', gap: 6 },
+  synergyPillText: { color: '#A78BFA', fontSize: 11, fontWeight: '800' },
 });

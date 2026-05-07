@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import type { GameState } from '../../engine/types';
 import { RARITY_COLORS, WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST } from '../../engine/constants';
-import { buyShopItem, rerollShop, healPlayer, buyEgg, trainPets, fusePets, evolveWeapon } from '../../engine/GameEngine';
+import { buyShopItem, rerollShop, healPlayer, buyEgg, trainPets, fusePets, evolveWeapon, getPetSynergies } from '../../engine/GameEngine';
 import { WEAPONS, EVOLVED_WEAPONS } from '../../engine/data';
 
 interface Props {
@@ -53,6 +53,7 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
   const trainCost = 10 + state.pets.reduce((sum, pet) => sum + pet.level * 4, 0);
   const canTrain = state.pets.length > 0 && state.pets.some(pet => pet.level < 9);
   const canFuse = state.pets.some((pet, idx) => state.pets.some((other, otherIdx) => idx !== otherIdx && other.kind === pet.kind && other.level === pet.level));
+  const synergies = getPetSynergies(state.pets);
   const readyWeapons = player.weapons
     .map((weapon, index) => ({ weapon, index }))
     .filter(({ weapon }) => !weapon.evolved && weapon.killCount >= WEAPON_EVOLVE_KILLS);
@@ -122,15 +123,33 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
             <Text style={s.noticeText}>{broodNotice}</Text>
           </View>
         )}
+        {synergies.length > 0 && (
+          <View style={s.synergyPanel}>
+            <Text style={s.synergyTitle}>⚡ Active Synergies</Text>
+            {synergies.map(syn => (
+              <Text key={syn.kind} style={s.synergyText}>
+                {syn.count}× {syn.kind.charAt(0).toUpperCase() + syn.kind.slice(1)} → +{syn.bonusPct}% damage
+              </Text>
+            ))}
+          </View>
+        )}
         <View style={s.petRow}>
           {state.pets.length === 0 ? (
             <Text style={s.emptyPetText}>Find eggs in the arena or buy one here.</Text>
           ) : state.pets.map(pet => {
             const detail = PET_DETAILS[pet.kind];
             const nextPower = pet.level >= 9 ? 'Max trained' : `Next: Pow ${Math.round(pet.damage + 1 + Math.floor((pet.level + 1) / 4))}`;
+            const nextPerkLevel = [3, 5, 7].find(l => l > pet.level);
             return (
-              <View key={pet.id} style={[s.petSlot, { borderColor: pet.color ?? 'rgba(45,212,191,0.18)', backgroundColor: `${pet.color ?? '#2DD4BF'}18` }]}>
-                <Text style={s.petEmoji}>{pet.emoji}</Text>
+              <View key={pet.id} style={[
+                s.petSlot,
+                { borderColor: pet.color ?? 'rgba(45,212,191,0.18)', backgroundColor: `${pet.color ?? '#2DD4BF'}18` },
+                pet.generation >= 3 && s.petSlotPrime,
+              ]}>
+                <View style={s.petEmojiCol}>
+                  <Text style={s.petEmoji}>{pet.emoji}</Text>
+                  {pet.generation >= 3 && <Text style={s.primeLabel}>PRIME</Text>}
+                </View>
                 <View style={s.petInfo}>
                   <View style={s.petNameRow}>
                     <Text style={s.petName}>{pet.name}</Text>
@@ -138,7 +157,18 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
                   </View>
                   <Text style={s.petLevel}>Lv.{pet.level} · Pow {Math.round(pet.damage)} · {getPetCooldown(pet.level, pet.kind)}s · R{getPetRange(pet.kind)}</Text>
                   <Text style={s.petTrait}>{pet.attackName}: {PET_TRAITS[pet.kind] ?? 'Companion'}</Text>
-                  <Text style={s.petDesc}>{pet.traitDesc}</Text>
+                  {(pet.perks?.length ?? 0) > 0 && (
+                    <View style={s.perkRow}>
+                      {pet.perks.map(pk => (
+                        <View key={pk.id} style={[s.perkChip, { borderColor: `${pet.color}55` }]}>
+                          <Text style={s.perkChipText}>{pk.emoji} {pk.name}</Text>
+                        </View>
+                      ))}
+                    </View>
+                  )}
+                  {nextPerkLevel && (
+                    <Text style={s.nextPerkText}>🔮 Lv.{nextPerkLevel}: new perk</Text>
+                  )}
                   <Text style={s.petUpgrade}>{nextPower} · {detail?.upgrade ?? 'Training improves this child.'}</Text>
                 </View>
               </View>
@@ -150,6 +180,8 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
             <Text style={s.familyTitle}>Family Upgrades</Text>
             <Text style={s.familyText}>Training cost: 🔩{trainCost}. Every trained child gets +1 level, more power, larger presence, and a faster attack rhythm.</Text>
             <Text style={s.familyText}>Breeding cost: based on the pair level. Matching twins become one higher-generation child with +2 levels and inherited power.</Text>
+            <Text style={s.familyText}>Perks unlock at Lv.3, 5, and 7. Each pet type gets unique abilities at these milestones.</Text>
+            <Text style={s.familyText}>Synergy: 2+ of the same kind gives all pets of that type a damage bonus.</Text>
           </View>
         )}
         <View style={s.actions}>
@@ -277,7 +309,10 @@ const s = StyleSheet.create({
   noticeText: { color: '#CCFBF1', fontSize: 12, fontWeight: '800', textAlign: 'center' },
   petRow: { flexDirection: 'row', alignItems: 'stretch', minHeight: 42, marginBottom: 8, flexWrap: 'wrap' },
   petSlot: { width: '100%', minHeight: 96, borderRadius: 10, alignItems: 'center', marginBottom: 8, borderWidth: 1, flexDirection: 'row', padding: 10 },
-  petEmoji: { fontSize: 30, marginRight: 10 },
+  petSlotPrime: { borderWidth: 2, shadowColor: '#F59E0B', shadowOpacity: 0.2, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+  petEmojiCol: { alignItems: 'center', marginRight: 10 },
+  petEmoji: { fontSize: 30 },
+  primeLabel: { color: '#F59E0B', fontSize: 8, fontWeight: '900', marginTop: 2 },
   petInfo: { flex: 1 },
   petNameRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   petName: { color: '#FFF', fontSize: 12, fontWeight: '900' },
@@ -285,6 +320,13 @@ const s = StyleSheet.create({
   petLevel: { color: '#CCFBF1', fontSize: 10, fontWeight: '800', marginTop: 2 },
   petTrait: { color: '#E0F2FE', fontSize: 10, fontWeight: '800', marginTop: 3 },
   petDesc: { color: '#94A3B8', fontSize: 10, fontWeight: '600', marginTop: 2, lineHeight: 14 },
+  perkRow: { flexDirection: 'row', flexWrap: 'wrap', marginTop: 4, gap: 4 },
+  perkChip: { borderWidth: 1, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, backgroundColor: 'rgba(255,255,255,0.04)' },
+  perkChipText: { color: '#E0F2FE', fontSize: 9, fontWeight: '800' },
+  nextPerkText: { color: '#A78BFA', fontSize: 9, fontWeight: '700', marginTop: 3 },
+  synergyPanel: { backgroundColor: 'rgba(99,102,241,0.1)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(99,102,241,0.25)', padding: 10, marginBottom: 8 },
+  synergyTitle: { color: '#A78BFA', fontSize: 12, fontWeight: '900', marginBottom: 4 },
+  synergyText: { color: '#E0F2FE', fontSize: 11, fontWeight: '700', marginTop: 2 },
   petUpgrade: { color: '#FBBF24', fontSize: 10, fontWeight: '800', marginTop: 3, lineHeight: 14 },
   familyPanel: { backgroundColor: 'rgba(15,23,42,0.64)', borderRadius: 10, borderWidth: 1, borderColor: 'rgba(148,163,184,0.14)', padding: 10, marginBottom: 8 },
   familyTitle: { color: '#FFF', fontSize: 12, fontWeight: '900', marginBottom: 4 },

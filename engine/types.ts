@@ -88,6 +88,13 @@ export interface ResourceNode {
   flashTimer: number;
 }
 
+export interface PetPerk {
+  id: string;
+  name: string;
+  emoji: string;
+  desc: string;
+}
+
 export interface PetCompanion {
   id: number;
   kind: PetKind;
@@ -106,6 +113,7 @@ export interface PetCompanion {
   attackFlash: number;
   action: 'idle' | 'attack' | 'heal';
   aimAngle: number;
+  perks: PetPerk[];
 }
 
 export interface DmgNum {
@@ -264,6 +272,7 @@ export interface HudData {
   equippedWeapons: { emoji: string; evolved: boolean; killCount: number; evolveKills: number }[];
   waveModifier?: WaveModifier;
   modifierAnnounceTimer?: number;
+  petSynergies?: { kind: PetKind; count: number; bonusPct: number }[];
 }
 
 export interface HighScore {
