@@ -1,6 +1,6 @@
 import { Vec2, dist, norm, sub, clamp, rng, rngInt, angle2v, v2angle, len, lerp } from './math';
 import type {
-  GameState, PlayerState, Enemy, Projectile, Pickup, DmgNum, ResourceNode, PetCompanion, PetKind,
+  GameState, PlayerState, Enemy, Projectile, Pickup, DmgNum, ResourceNode, PetCompanion, PetKind, PetPerk,
   CharacterId, GamePhase, WeaponId, ItemId, Rarity, WeaponState,
   ShopSlot, LevelUpOption, HudData, WaveState,
 } from './types';
@@ -39,6 +39,44 @@ const PET_DEFS: Record<PetKind, { emoji: string; name: string; damage: number; c
 };
 const PET_MAX_LEVEL = 9;
 const BOSS_EXTRA_TIME = 18;
+
+// ═══ PET PERKS ═══
+const PET_PERK_DEFS: Record<PetKind, { level: number; perk: PetPerk }[]> = {
+  snapper: [
+    { level: 3, perk: { id: 'snap_rapid', name: 'Rapid Fire', emoji: '💨', desc: '+20% attack speed' } },
+    { level: 5, perk: { id: 'snap_focus', name: 'Boss Focus', emoji: '🎯', desc: '+40% damage vs bosses' } },
+    { level: 7, perk: { id: 'snap_double', name: 'Double Dart', emoji: '⚡', desc: 'Fires two projectiles' } },
+  ],
+  spark: [
+    { level: 3, perk: { id: 'spark_range', name: 'Long Arc', emoji: '📡', desc: '+30% range' } },
+    { level: 5, perk: { id: 'spark_chain', name: 'Chain Zap', emoji: '🔗', desc: 'Piercing bolts zap nearby enemies' } },
+    { level: 7, perk: { id: 'spark_overload', name: 'Overload', emoji: '💥', desc: 'Crits deal area damage' } },
+  ],
+  mender: [
+    { level: 3, perk: { id: 'mend_regen', name: 'Regen Aura', emoji: '💚', desc: 'Passive heal-over-time' } },
+    { level: 5, perk: { id: 'mend_shield', name: 'Barrier', emoji: '🛡️', desc: 'Absorbs one hit every 8s' } },
+    { level: 7, perk: { id: 'mend_revive', name: 'Second Wind', emoji: '🌊', desc: 'Emergency burst heal at low HP' } },
+  ],
+};
+
+function getPetPerks(kind: PetKind, level: number): PetPerk[] {
+  return (PET_PERK_DEFS[kind] ?? []).filter(p => level >= p.level).map(p => p.perk);
+}
+
+function hasPerk(pet: PetCompanion, perkId: string): boolean {
+  return pet.perks.some(p => p.id === perkId);
+}
+
+/** Count pets of each kind; 2+ of same kind triggers a synergy bonus. */
+export function getPetSynergies(pets: PetCompanion[]): { kind: PetKind; count: number; bonusPct: number }[] {
+  const counts = new Map<PetKind, number>();
+  for (const p of pets) counts.set(p.kind, (counts.get(p.kind) ?? 0) + 1);
+  const synergies: { kind: PetKind; count: number; bonusPct: number }[] = [];
+  for (const [kind, count] of counts) {
+    if (count >= 2) synergies.push({ kind, count, bonusPct: 15 + (count - 2) * 10 });
+  }
+  return synergies;
+}
 
 function isBossWave(waveNumber: number): boolean {
   return BOSS_WAVES.includes(waveNumber);
@@ -111,6 +149,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     hitStop: 0,
     waveModifier: 'none',
     modifierAnnounceTimer: 0,
+    time: 0,
   };
   spawnResourceNodes(state, 5);
   return state;
@@ -131,6 +170,13 @@ export function updateGame(state: GameState, dt: number, input: Vec2): void {
     updateDeathParticles(state, dt);
     updateShake(state, dt);
     return;
+  }
+
+  // Game time only advances during active play, so paused/hit-stopped
+  // visuals (ghost wobble, pet orbit) freeze cleanly.
+  state.time += dt;
+  if (state.modifierAnnounceTimer > 0) {
+    state.modifierAnnounceTimer = Math.max(0, state.modifierAnnounceTimer - dt);
   }
 
   updatePlayer(state, dt, input);
@@ -171,7 +217,6 @@ function updateAnnounce(state: GameState, dt: number): void {
   if (state.modifierAnnounceTimer > 0) state.modifierAnnounceTimer -= dt;
   if (state.wave.announceTimer <= 0) {
     state.phase = 'playing';
-    state.modifierAnnounceTimer = 0;
   }
 }
 
@@ -302,9 +347,9 @@ function updateEnemies(state: GameState, dt: number): void {
       // Move toward player
       let nx = dx / d;
       let ny = dy / d;
-      // Ghost wobble
+      // Ghost wobble (uses engine time so it freezes during pause/hitstop)
       if (e.type === 'ghost') {
-        const wobble = Math.sin(Date.now() * 0.003 + e.id * 7) * 0.6;
+        const wobble = Math.sin(state.time * 3 + e.id * 7) * 0.6;
         const a = Math.atan2(ny, nx) + wobble;
         nx = Math.cos(a);
         ny = Math.sin(a);
@@ -363,8 +408,18 @@ function separateEnemies(state: GameState): void {
 
 function updatePets(state: GameState, dt: number): void {
   const p = state.player;
+  const synergies = getPetSynergies(state.pets);
+  const synergyMap = new Map(synergies.map(s => [s.kind, s.bonusPct]));
+
+  // Mender regen-aura perk: passive heal ticks
+  for (const pet of state.pets) {
+    if (hasPerk(pet, 'mend_regen') && p.hp < p.maxHp) {
+      p.hp = Math.min(p.maxHp, p.hp + dt * 1.5);
+    }
+  }
+
   state.pets.forEach((pet, i) => {
-    const orbit = Date.now() * 0.002 + i * ((Math.PI * 2) / Math.max(1, state.pets.length));
+    const orbit = state.time * 2 + i * ((Math.PI * 2) / Math.max(1, state.pets.length));
     const levelScale = 1 + Math.min(0.55, (pet.level - 1) * 0.06);
     pet.attackFlash = Math.max(0, pet.attackFlash - dt * 3.5);
     if (pet.attackFlash <= 0) pet.action = 'idle';
@@ -377,8 +432,22 @@ function updatePets(state: GameState, dt: number): void {
     pet.cooldownTimer = Math.max(0, pet.cooldownTimer - dt);
     if (pet.cooldownTimer > 0) return;
     const def = PET_DEFS[pet.kind];
+    const synergyMult = 1 + (synergyMap.get(pet.kind) ?? 0) / 100;
+
+    // Mender second-wind: emergency burst heal at low HP
+    if (hasPerk(pet, 'mend_revive') && p.hp < p.maxHp * 0.2 && p.hp > 0) {
+      const bigHeal = Math.round(p.maxHp * 0.2);
+      p.hp = Math.min(p.maxHp, p.hp + bigHeal);
+      pet.cooldownTimer = 8;
+      pet.attackFlash = 1;
+      pet.action = 'heal';
+      addDmgNum(state, p.x, p.y - 40, `🌊+${bigHeal}`, '#2DD4BF');
+      addEffect(state, p.x, p.y, 'burst', '#2DD4BF', 0, 60);
+      return;
+    }
+
     if (pet.kind === 'mender' && p.hp < p.maxHp) {
-      const heal = Math.max(1, Math.round(1 + pet.level * 0.55));
+      const heal = Math.max(1, Math.round((1 + pet.level * 0.55) * synergyMult));
       p.hp = Math.min(p.maxHp, p.hp + heal);
       pet.cooldownTimer = Math.max(0.85, def.cooldown * (1 - Math.min(0.28, (pet.level - 1) * 0.025)));
       pet.attackFlash = 1;
@@ -389,23 +458,36 @@ function updatePets(state: GameState, dt: number): void {
       addEffect(state, p.x, p.y, 'heal', def.color, 0, 30 + pet.level * 2);
       return;
     }
-    const nearest = findNearest(pet, state.enemies, def.range);
+    let attackRange = def.range;
+    if (hasPerk(pet, 'spark_range')) attackRange = Math.round(attackRange * 1.3);
+    const nearest = findNearest(pet, state.enemies, attackRange);
     if (!nearest || state.projectiles.length >= MAX_PROJECTILES) return;
     const dir = norm(sub(nearest, pet));
-    pet.cooldownTimer = def.cooldown * Math.max(0.62, 1 - (pet.level - 1) * 0.035);
+    let cdMult = Math.max(0.62, 1 - (pet.level - 1) * 0.035);
+    if (hasPerk(pet, 'snap_rapid')) cdMult *= 0.8;
+    pet.cooldownTimer = def.cooldown * cdMult;
     pet.attackFlash = 1;
     pet.action = 'attack';
     pet.aimAngle = v2angle(dir);
-    addEffect(state, pet.x, pet.y, pet.kind === 'spark' ? 'beam' : 'muzzle', def.color, pet.aimAngle, pet.kind === 'spark' ? Math.min(def.range, dist(pet, nearest)) : 18);
+    addEffect(state, pet.x, pet.y, pet.kind === 'spark' ? 'beam' : 'muzzle', def.color, pet.aimAngle, pet.kind === 'spark' ? Math.min(attackRange, dist(pet, nearest)) : 18);
     if (pet.kind === 'spark') addEffect(state, nearest.x, nearest.y, 'zap', def.color, 0, 24 + pet.level * 2);
     if (pet.kind === 'snapper' && pet.level >= 4) addEffect(state, pet.x, pet.y, 'slash', def.color, pet.aimAngle, 24 + pet.level * 2);
-    state.projectiles.push({
-      id: nid(), x: pet.x, y: pet.y,
-      vx: dir.x * (pet.kind === 'snapper' ? 420 : 360), vy: dir.y * (pet.kind === 'snapper' ? 420 : 360),
-      damage: pet.damage * p.damageMult * (1 + (pet.level - 1) * 0.32),
-      emoji: def.projEmoji, radius: 5 * levelScale, piercing: pet.kind === 'spark', hitIds: [],
-      life: def.range / 360, maxLife: def.range / 360, isEnemy: false,
-    });
+    const baseDmg = pet.damage * p.damageMult * (1 + (pet.level - 1) * 0.32) * synergyMult;
+    const projSpeed = pet.kind === 'snapper' ? 420 : 360;
+    const shotCount = hasPerk(pet, 'snap_double') ? 2 : 1;
+    for (let si = 0; si < shotCount; si++) {
+      const spread = shotCount > 1 ? (si - 0.5) * 0.15 : 0;
+      const a = pet.aimAngle + spread;
+      const d = angle2v(a);
+      if (state.projectiles.length >= MAX_PROJECTILES) break;
+      state.projectiles.push({
+        id: nid(), x: pet.x, y: pet.y,
+        vx: d.x * projSpeed, vy: d.y * projSpeed,
+        damage: baseDmg,
+        emoji: def.projEmoji, radius: 5 * levelScale, piercing: pet.kind === 'spark', hitIds: [],
+        life: attackRange / 360, maxLife: attackRange / 360, isEnemy: false,
+      });
+    }
   });
 }
 
@@ -808,7 +890,7 @@ function checkEnemyPlayerHits(state: GameState): void {
   const p = state.player;
   if (p.invulnTimer > 0 || p.abilityActive) return;
   for (const e of state.enemies) {
-    if (!e.alive || e.type === 'spitter') continue; // spitters only do ranged damage
+    if (!e.alive) continue;
     const d = dist(p, e);
     if (d < p.radius + e.radius) {
       const dodgeRoll = rng(0, 100);
@@ -935,6 +1017,7 @@ function hatchPet(state: GameState): void {
     attackName: def.attackName, trait: def.trait, traitDesc: def.traitDesc,
     level: 1, cooldownTimer: rng(0, 0.4), radius: 12, damage: def.damage,
     attackFlash: 0, action: 'idle', aimAngle: 0,
+    perks: [],
   };
   state.pets.push(pet);
   addDmgNum(state, state.player.x, state.player.y - 42, `${def.name} joined!`, def.color);
@@ -987,6 +1070,15 @@ function updateShake(state: GameState, dt: number): void {
 function updateWaveTimer(state: GameState, dt: number): void {
   state.wave.timer -= dt;
   if (state.wave.timer <= 0) {
+    // Boss waves cannot end on a timer expiring — the boss must actually die.
+    // Spawning is already gated by maxSpawns so adds will stop naturally.
+    if (isBossWave(state.wave.number)) {
+      const bossAlive = state.wave.bossSpawned && state.enemies.some(e => e.alive && e.isBoss);
+      if (bossAlive) {
+        state.wave.timer = 0;
+        return;
+      }
+    }
     endWave(state);
   }
 }
@@ -1256,7 +1348,7 @@ function applyStatChange(p: PlayerState, stat: string, amount: number): void {
     case 'luck': p.luck += amount; break;
     case 'harvesting': p.harvesting += amount; break;
     case 'attackSpeed': p.attackSpeedMult += amount / 100; break;
-    case 'critChance': p.critChance += amount; break;
+    case 'critChance': p.critChance = Math.min(100, p.critChance + amount); break;
     case 'pickupRange': p.pickupRange += amount; break;
     case 'heal': p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * amount / 100)); break;
   }
@@ -1306,18 +1398,24 @@ export function generateShopItems(state: GameState): void {
   }
 }
 
-export function evolveWeapon(state: GameState, weaponIndex: number): boolean {
+function applyEvolution(state: GameState, weaponIndex: number): void {
   const weapon = state.player.weapons[weaponIndex];
-  if (!weapon || weapon.evolved) return false;
-  if (weapon.killCount < WEAPON_EVOLVE_KILLS) return false;
-  if (state.materials < WEAPON_EVOLVE_COST) return false;
-  state.materials -= WEAPON_EVOLVE_COST;
+  if (!weapon || weapon.evolved) return;
   weapon.evolved = true;
   state.stats.weaponsEvolved++;
   playSound('evolve');
   addDmgNum(state, state.player.x, state.player.y - 50, `${EVOLVED_WEAPONS[weapon.id]?.name ?? 'Weapon'}!`, '#F59E0B');
   addEffect(state, state.player.x, state.player.y, 'burst', '#F59E0B', 0, 70);
   state.shake = { x: 0, y: 0, timer: 0.35, intensity: 6 };
+}
+
+export function evolveWeapon(state: GameState, weaponIndex: number): boolean {
+  const weapon = state.player.weapons[weaponIndex];
+  if (!weapon || weapon.evolved) return false;
+  if (weapon.killCount < WEAPON_EVOLVE_KILLS) return false;
+  if (state.materials < WEAPON_EVOLVE_COST) return false;
+  state.materials -= WEAPON_EVOLVE_COST;
+  applyEvolution(state, weaponIndex);
   return true;
 }
 
@@ -1325,14 +1423,15 @@ export function buyShopItem(state: GameState, index: number): boolean {
   const slot = state.shopSlots?.[index];
   if (!slot || slot.bought || state.materials < slot.price) return false;
 
-  // Check for duplicate weapon -> evolve
+  // Check for duplicate weapon -> evolve. The shop slot price is the only
+  // material cost in this path; we do NOT also charge WEAPON_EVOLVE_COST.
   if (slot.kind === 'weapon' && slot.weaponId) {
     const existing = state.player.weapons.find(w => w.id === slot.weaponId && !w.evolved);
     if (existing && existing.killCount >= WEAPON_EVOLVE_KILLS) {
-      // Evolve existing weapon
       state.materials -= slot.price;
       slot.bought = true;
-      return evolveWeapon(state, state.player.weapons.indexOf(existing));
+      applyEvolution(state, state.player.weapons.indexOf(existing));
+      return true;
     }
     // If it did not evolve, it consumes a weapon slot. Never exceed capacity.
     if (state.player.weapons.length >= 6) return false;
@@ -1396,14 +1495,20 @@ export function trainPets(state: GameState): boolean {
   state.materials -= cost;
   for (const pet of state.pets) {
     if (pet.level >= PET_MAX_LEVEL) continue;
+    const prevPerks = pet.perks.length;
     pet.level++;
     pet.damage += 1 + Math.floor(pet.level / 4);
     pet.radius = Math.min(18, pet.radius + 0.75);
     pet.cooldownTimer = 0;
     pet.attackFlash = 1;
     pet.action = 'heal';
+    pet.perks = getPetPerks(pet.kind, pet.level);
     addEffect(state, pet.x, pet.y, 'ring', pet.color, 0, 34 + pet.level * 3);
     addDmgNum(state, pet.x, pet.y - 28, `Lv.${pet.level}`, pet.color);
+    if (pet.perks.length > prevPerks) {
+      const newPerk = pet.perks[pet.perks.length - 1];
+      addDmgNum(state, pet.x, pet.y - 46, `${newPerk.emoji} ${newPerk.name}!`, '#F59E0B');
+    }
   }
   addEffect(state, state.player.x, state.player.y, 'burst', '#2DD4BF', 0, 58);
   addDmgNum(state, state.player.x, state.player.y - 44, 'brood trained +1', '#2DD4BF');
@@ -1434,6 +1539,7 @@ export function fusePets(state: GameState): boolean {
       a.name = a.generation >= 3 ? `Prime ${PET_DEFS[a.kind].name}` : `${PET_DEFS[a.kind].name} II`;
       a.attackFlash = 1;
       a.action = 'heal';
+      a.perks = getPetPerks(a.kind, a.level);
       state.pets = state.pets.filter(p => p.id !== b.id);
       addDmgNum(state, a.x, a.y - 34, `${a.name} bred Lv.${a.level}`, '#FBBF24');
       addEffect(state, a.x, a.y, 'ring', a.color, 0, 62);
@@ -1579,5 +1685,6 @@ export function extractHudData(state: GameState): HudData {
     })),
     waveModifier: state.waveModifier,
     modifierAnnounceTimer: state.modifierAnnounceTimer,
+    petSynergies: getPetSynergies(state.pets),
   };
 }

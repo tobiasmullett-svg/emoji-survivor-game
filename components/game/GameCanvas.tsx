@@ -27,19 +27,53 @@ const BUBBLES = Array.from({ length: 24 }, (_, i) => ({
   speed: 0.28 + (i % 5) * 0.08,
 }));
 const REEF_PROPS = [
-  { id: 1, x: 170, y: 260, emoji: '🪸', size: 30 },
-  { id: 2, x: 420, y: 1560, emoji: '🌿', size: 24 },
-  { id: 3, x: 820, y: 300, emoji: '🪨', size: 26 },
-  { id: 4, x: 1240, y: 1680, emoji: '🪸', size: 34 },
-  { id: 5, x: 1620, y: 520, emoji: '🌿', size: 26 },
-  { id: 6, x: 1760, y: 1320, emoji: '💠', size: 22 },
-  { id: 7, x: 620, y: 1020, emoji: '🪸', size: 24 },
-  { id: 8, x: 1420, y: 940, emoji: '🪨', size: 28 },
-  { id: 9, x: 920, y: 820, emoji: '🌿', size: 23 },
-  { id: 10, x: 1080, y: 1180, emoji: '🪸', size: 26 },
-  { id: 11, x: 780, y: 1220, emoji: '💠', size: 20 },
-  { id: 12, x: 1200, y: 760, emoji: '🪨', size: 24 },
+  { id: 1, x: 170, y: 260, emoji: '🪸', size: 30, layer: 0 },
+  { id: 2, x: 420, y: 1560, emoji: '🌿', size: 24, layer: 1 },
+  { id: 3, x: 820, y: 300, emoji: '🪨', size: 26, layer: 0 },
+  { id: 4, x: 1240, y: 1680, emoji: '🪸', size: 34, layer: 1 },
+  { id: 5, x: 1620, y: 520, emoji: '🌿', size: 26, layer: 0 },
+  { id: 6, x: 1760, y: 1320, emoji: '💠', size: 22, layer: 1 },
+  { id: 7, x: 620, y: 1020, emoji: '🪸', size: 24, layer: 0 },
+  { id: 8, x: 1420, y: 940, emoji: '🪨', size: 28, layer: 1 },
+  { id: 9, x: 920, y: 820, emoji: '🌿', size: 23, layer: 0 },
+  { id: 10, x: 1080, y: 1180, emoji: '🪸', size: 26, layer: 1 },
+  { id: 11, x: 780, y: 1220, emoji: '💠', size: 20, layer: 0 },
+  { id: 12, x: 1200, y: 760, emoji: '🪨', size: 24, layer: 1 },
+  { id: 13, x: 300, y: 800, emoji: '🐚', size: 20, layer: 0 },
+  { id: 14, x: 1550, y: 200, emoji: '🪸', size: 28, layer: 1 },
+  { id: 15, x: 500, y: 1350, emoji: '🌊', size: 22, layer: 0 },
+  { id: 16, x: 1700, y: 900, emoji: '🪸', size: 32, layer: 1 },
+  { id: 17, x: 100, y: 1700, emoji: '🐚', size: 24, layer: 0 },
+  { id: 18, x: 950, y: 1600, emoji: '🌿', size: 28, layer: 1 },
 ];
+const CAUSTIC_LIGHTS = Array.from({ length: 8 }, (_, i) => ({
+  id: i,
+  x: (i * 293) % 1700 + 150,
+  y: (i * 197) % 1700 + 150,
+  width: 140 + (i % 3) * 60,
+  height: 80 + (i % 4) * 30,
+  angle: (i * 37) % 360,
+  speed: 0.006 + (i % 3) * 0.003,
+  drift: 0.008 + (i % 4) * 0.004,
+}));
+const KELP_CLUSTERS = Array.from({ length: 10 }, (_, i) => ({
+  id: i,
+  x: (i * 199) % 1800 + 100,
+  y: (i * 263) % 1800 + 100,
+  height: 40 + (i % 3) * 16,
+  blades: 3 + (i % 3),
+  hue: i % 2 === 0 ? 'rgba(34,197,94,0.14)' : 'rgba(20,184,166,0.12)',
+}));
+const DEPTH_MOTES = Array.from({ length: 18 }, (_, i) => ({
+  id: i,
+  x: (i * 157) % 1920 + 30,
+  y: (i * 239) % 1920 + 30,
+  size: 2 + (i % 3) * 1.5,
+  driftX: 0.012 + (i % 5) * 0.006,
+  driftY: 0.008 + (i % 4) * 0.005,
+  opacity: 0.06 + (i % 4) * 0.03,
+  color: i % 3 === 0 ? '#A78BFA' : i % 3 === 1 ? '#2DD4BF' : '#BAE6FD',
+}));
 
 interface Props {
   gameState: React.RefObject<GameState | null>;
@@ -51,6 +85,12 @@ function DangerVignette({ frame }: { frame: number }) {
   return (
     <View style={[s.dangerVignette, { borderColor: `rgba(239,68,68,${pulse})` }]} />
   );
+}
+
+function CritFlash({ frame }: { frame: number }) {
+  const opacity = Math.max(0, 1 - (frame % 20) * 0.15);
+  if (opacity <= 0) return null;
+  return <View style={[s.critFlash, { opacity }]} />;
 }
 
 export default function GameCanvas({ gameState, frame }: Props) {
@@ -77,6 +117,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
     const y = ((bubble.y - frame * bubble.speed) % 1960 + 1960) % 1960 + 20;
     return vis(bubble.x, y);
   });
+  const showCritFlash = state.hitStop > 0.06;
 
   return (
     <View style={s.viewport} pointerEvents="none">
@@ -85,6 +126,50 @@ export default function GameCanvas({ gameState, frame }: Props) {
         <View style={[s.arenaBg, { width: arena.width, height: arena.height }]}>
           <View style={s.arenaGlowA} />
           <View style={s.arenaGlowB} />
+          <View style={[s.arenaGlowC, {
+            left: 600 + Math.sin(frame * 0.005) * 120,
+            top: 800 + Math.cos(frame * 0.004) * 90,
+          }]} />
+          {/* Caustic light rays */}
+          {CAUSTIC_LIGHTS.map(cl => (
+            <View
+              key={`cl-${cl.id}`}
+              style={[
+                s.causticLight,
+                {
+                  left: cl.x + Math.sin(frame * cl.drift + cl.id) * 40,
+                  top: cl.y + Math.cos(frame * cl.drift * 0.7 + cl.id * 3) * 30,
+                  width: cl.width,
+                  height: cl.height,
+                  borderRadius: cl.height / 2,
+                  opacity: 0.035 + Math.sin(frame * cl.speed + cl.id * 2) * 0.02,
+                  transform: [{ rotate: `${cl.angle + Math.sin(frame * 0.003 + cl.id) * 12}deg` }],
+                },
+              ]}
+            />
+          ))}
+          {/* Kelp clusters */}
+          {KELP_CLUSTERS.map(kc => (
+            <View key={`kc-${kc.id}`} style={[s.kelpCluster, { left: kc.x, top: kc.y }]}>
+              {Array.from({ length: kc.blades }, (_, bi) => {
+                const sway = Math.sin((frame + kc.id * 17 + bi * 11) * 0.025) * 8;
+                return (
+                  <View
+                    key={bi}
+                    style={[
+                      s.kelpBlade,
+                      {
+                        height: kc.height + bi * 6,
+                        backgroundColor: kc.hue,
+                        left: bi * 5 - (kc.blades * 2.5),
+                        transform: [{ rotate: `${sway + (bi - 1) * 3}deg` }, { translateY: -kc.height / 2 }],
+                      },
+                    ]}
+                  />
+                );
+              })}
+            </View>
+          ))}
           {visibleCurrents.map(current => (
             <View
               key={`cur-${current.id}`}
@@ -110,9 +195,9 @@ export default function GameCanvas({ gameState, frame }: Props) {
                 s.reefProp,
                 {
                   left: prop.x,
-                  top: prop.y + Math.sin((frame + prop.id * 19) * 0.025) * 2,
+                  top: prop.y + Math.sin((frame + prop.id * 19) * 0.025) * (2 + prop.layer),
                   fontSize: prop.size,
-                  opacity: 0.18 + Math.sin((frame + prop.id * 13) * 0.02) * 0.03,
+                  opacity: 0.18 + Math.sin((frame + prop.id * 13) * 0.02) * 0.05 + prop.layer * 0.06,
                 },
               ]}
             >
@@ -138,6 +223,28 @@ export default function GameCanvas({ gameState, frame }: Props) {
               />
             );
           })}
+          {/* Depth motes */}
+          {DEPTH_MOTES.map(mote => {
+            const mx = mote.x + Math.sin(frame * mote.driftX + mote.id * 5) * 30;
+            const my = mote.y + Math.cos(frame * mote.driftY + mote.id * 3) * 25;
+            return (
+              <View
+                key={`mote-${mote.id}`}
+                style={[
+                  s.depthMote,
+                  {
+                    left: mx,
+                    top: my,
+                    width: mote.size,
+                    height: mote.size,
+                    borderRadius: mote.size,
+                    backgroundColor: mote.color,
+                    opacity: mote.opacity + Math.sin(frame * 0.03 + mote.id) * 0.02,
+                  },
+                ]}
+              />
+            );
+          })}
           {visibleGridX.map(x => <View key={`vx-${x}`} style={[s.gridLineV, { left: x, height: arena.height }]} />)}
           {visibleGridY.map(y => <View key={`hy-${y}`} style={[s.gridLineH, { top: y, width: arena.width }]} />)}
           {visibleStars.map(star => (
@@ -156,12 +263,17 @@ export default function GameCanvas({ gameState, frame }: Props) {
               ]}
             />
           ))}
+          {/* Arena border pulse */}
+          <View style={[s.arenaBorderPulse, {
+            width: arena.width, height: arena.height,
+            borderColor: `rgba(45,212,191,${0.12 + Math.sin(frame * 0.02) * 0.06})`,
+          }]} />
         </View>
         {/* Hazards */}
         {(hazards ?? []).filter(h => vis(h.x, h.y)).map(h => {
           const pulse = 0.5 + Math.sin(h.pulse) * 0.18;
           return (
-            <View key={h.id} style={[s.hazardWrap, { left: h.x - h.radius, top: h.y - h.radius, width: h.radius * 2, height: h.radius * 2, borderRadius: h.radius }]}> 
+            <View key={h.id} style={[s.hazardWrap, { left: h.x - h.radius, top: h.y - h.radius, width: h.radius * 2, height: h.radius * 2, borderRadius: h.radius }]}>
               <View style={[s.hazardPulse, { opacity: pulse, width: h.radius * 2, height: h.radius * 2, borderRadius: h.radius }]} />
               <Text style={s.hazardEmoji}>{h.emoji}</Text>
             </View>
@@ -201,8 +313,20 @@ export default function GameCanvas({ gameState, frame }: Props) {
         {(enemies ?? []).filter(e => e?.alive && vis(e.x, e.y)).map(e => {
           const showTelegraph = e.telegraphTimer > 0 && e.telegraphType === 'attack';
           const telegraphProg = showTelegraph ? 1 - (e.telegraphTimer / e.telegraphMax) : 0;
+          const isElite = e.elite !== 'none';
           return (
             <View key={e.id} style={[s.enemyWrap, { left: e.x - e.radius, top: e.y - e.radius - 8 }]}>
+              {isElite && (
+                <View style={[s.eliteAura, {
+                  width: e.radius * 2.6,
+                  height: e.radius * 2.6,
+                  borderRadius: e.radius * 1.3,
+                  top: 8 - e.radius * 0.3,
+                  left: -e.radius * 0.3,
+                  opacity: 0.2 + Math.sin(frame * 0.1 + e.id) * 0.08,
+                  borderColor: e.elite === 'fast' ? '#F472B6' : e.elite === 'tanky' ? '#60A5FA' : e.elite === 'explosive' ? '#FB923C' : e.elite === 'vampiric' ? '#A78BFA' : '#2DD4BF',
+                }]} />
+              )}
               {showTelegraph && (
                 <View style={s.telegraphBarBg}>
                   <View style={[s.telegraphBar, { width: `${Math.min(100, Math.max(8, telegraphProg * 100))}%` }]} />
@@ -211,7 +335,6 @@ export default function GameCanvas({ gameState, frame }: Props) {
               <Text style={[s.entity, s.enemyEmoji, { fontSize: e.fontSize, opacity: e.flashTimer > 0 ? 0.35 : 1 }]}>
                 {e.isBoss ? '👑' : ''}{e.emoji}
               </Text>
-              {/* Shield bar */}
               {e.shieldHp > 0 && (
                 <View style={[s.shieldBarBg, { width: e.radius * 2 }]}>
                   <View style={[s.shieldBar, { width: `${Math.max(0, (e.shieldHp / e.maxShieldHp) * 100)}%` }]} />
@@ -225,62 +348,138 @@ export default function GameCanvas({ gameState, frame }: Props) {
             </View>
           );
         })}
-        {/* Projectiles */}
-        {(projectiles ?? []).filter(pr => pr.life > 0 && vis(pr.x, pr.y)).map(pr => (
-          <View key={pr.id} style={[s.projectileGlow, { left: pr.x - 8, top: pr.y - 8, borderColor: pr.isEnemy ? 'rgba(34,197,94,0.45)' : 'rgba(245,158,11,0.5)' }]}>
-            <View
-              style={[
-                s.projectileTrail,
+        {/* Projectiles with afterimage trails */}
+        {(projectiles ?? []).filter(pr => pr.life > 0 && vis(pr.x, pr.y)).map(pr => {
+          const isEvolved = !pr.isEnemy && pr.emoji === '🔥' || pr.emoji === '🌩️' || pr.emoji === '⇒';
+          const angle = Math.atan2(pr.vy, pr.vx);
+          const speed = Math.sqrt(pr.vx * pr.vx + pr.vy * pr.vy);
+          const trailLen = Math.min(3, Math.max(1, Math.floor(speed / 200)));
+          return (
+            <React.Fragment key={pr.id}>
+              {/* Afterimage ghost copies */}
+              {trailLen >= 2 && (
+                <View style={[s.projectileGhost, {
+                  left: pr.x - 8 - Math.cos(angle) * 12,
+                  top: pr.y - 8 - Math.sin(angle) * 12,
+                  borderColor: pr.isEnemy ? 'rgba(34,197,94,0.15)' : 'rgba(245,158,11,0.2)',
+                }]}>
+                  <Text style={[s.projectileText, { fontSize: 9, color: pr.isEnemy ? 'rgba(74,222,128,0.3)' : 'rgba(251,191,36,0.35)' }]}>
+                    {pr.emoji}
+                  </Text>
+                </View>
+              )}
+              {trailLen >= 3 && (
+                <View style={[s.projectileGhost, {
+                  left: pr.x - 8 - Math.cos(angle) * 24,
+                  top: pr.y - 8 - Math.sin(angle) * 24,
+                  borderColor: 'transparent',
+                }]}>
+                  <Text style={[s.projectileText, { fontSize: 8, color: pr.isEnemy ? 'rgba(74,222,128,0.15)' : 'rgba(251,191,36,0.18)' }]}>
+                    {pr.emoji}
+                  </Text>
+                </View>
+              )}
+              {/* Main projectile */}
+              <View style={[
+                s.projectileGlow,
                 {
-                  backgroundColor: pr.isEnemy ? 'rgba(74,222,128,0.55)' : 'rgba(251,191,36,0.7)',
-                  transform: [{ rotate: `${Math.atan2(pr.vy, pr.vx)}rad` }],
+                  left: pr.x - 8, top: pr.y - 8,
+                  borderColor: pr.isEnemy ? 'rgba(34,197,94,0.45)' : isEvolved ? 'rgba(245,158,11,0.7)' : 'rgba(245,158,11,0.5)',
                 },
-              ]}
-            />
-            <Text style={[s.projectileText, { fontSize: pr.isEnemy ? 12 : 11, color: pr.isEnemy ? '#4ADE80' : '#FBBF24' }]}>
-              {pr.emoji}
-            </Text>
-          </View>
-        ))}
+                isEvolved && s.projectileEvolved,
+              ]}>
+                <View
+                  style={[
+                    s.projectileTrail,
+                    {
+                      backgroundColor: pr.isEnemy ? 'rgba(74,222,128,0.55)' : isEvolved ? 'rgba(245,158,11,0.85)' : 'rgba(251,191,36,0.7)',
+                      width: isEvolved ? 28 : 22,
+                      transform: [{ rotate: `${angle}rad` }],
+                    },
+                  ]}
+                />
+                <Text style={[s.projectileText, {
+                  fontSize: pr.isEnemy ? 12 : isEvolved ? 13 : 11,
+                  color: pr.isEnemy ? '#4ADE80' : '#FBBF24',
+                }]}>
+                  {pr.emoji}
+                </Text>
+              </View>
+            </React.Fragment>
+          );
+        })}
         {/* Weapon effects */}
         {(effects ?? []).filter(fx => vis(fx.x, fx.y)).map(fx => {
           const prog = 1 - fx.t / fx.maxT;
           if (fx.kind === 'slash') {
             return (
-              <View
-                key={fx.id}
-                style={[
-                  s.slashFx,
-                  {
-                    left: fx.x - fx.radius,
-                    top: fx.y - fx.radius,
-                    width: fx.radius * 2,
-                    height: fx.radius * 2,
-                    borderRadius: fx.radius,
-                    borderColor: fx.color,
-                    opacity: 1 - prog,
-                    transform: [{ rotate: `${fx.angle}rad` }, { scale: 0.75 + prog * 0.35 }],
-                  },
-                ]}
-              />
+              <React.Fragment key={fx.id}>
+                <View
+                  style={[
+                    s.slashFx,
+                    {
+                      left: fx.x - fx.radius,
+                      top: fx.y - fx.radius,
+                      width: fx.radius * 2,
+                      height: fx.radius * 2,
+                      borderRadius: fx.radius,
+                      borderColor: fx.color,
+                      opacity: 1 - prog,
+                      transform: [{ rotate: `${fx.angle}rad` }, { scale: 0.75 + prog * 0.35 }],
+                    },
+                  ]}
+                />
+                {/* Secondary arc for bigger slashes */}
+                {fx.radius > 40 && (
+                  <View
+                    style={[
+                      s.slashFx,
+                      {
+                        left: fx.x - fx.radius * 0.8,
+                        top: fx.y - fx.radius * 0.8,
+                        width: fx.radius * 1.6,
+                        height: fx.radius * 1.6,
+                        borderRadius: fx.radius * 0.8,
+                        borderColor: fx.color,
+                        opacity: (1 - prog) * 0.5,
+                        transform: [{ rotate: `${fx.angle + 0.3}rad` }, { scale: 0.6 + prog * 0.5 }],
+                      },
+                    ]}
+                  />
+                )}
+              </React.Fragment>
             );
           }
           if (fx.kind === 'muzzle') {
             return (
-              <View
-                key={fx.id}
-                style={[
-                  s.muzzleFx,
-                  {
-                    left: fx.x - fx.radius / 2,
-                    top: fx.y - 2,
-                    width: fx.radius,
-                    backgroundColor: fx.color,
-                    opacity: 1 - prog,
-                    transform: [{ rotate: `${fx.angle}rad` }, { scaleX: 1 + prog * 0.8 }],
-                  },
-                ]}
-              />
+              <React.Fragment key={fx.id}>
+                <View
+                  style={[
+                    s.muzzleFx,
+                    {
+                      left: fx.x - fx.radius / 2,
+                      top: fx.y - 2,
+                      width: fx.radius,
+                      backgroundColor: fx.color,
+                      opacity: 1 - prog,
+                      transform: [{ rotate: `${fx.angle}rad` }, { scaleX: 1 + prog * 0.8 }],
+                    },
+                  ]}
+                />
+                {/* Muzzle spark */}
+                <View
+                  style={[
+                    s.muzzleSpark,
+                    {
+                      left: fx.x - 4,
+                      top: fx.y - 4,
+                      opacity: (1 - prog) * 0.7,
+                      backgroundColor: fx.color,
+                      transform: [{ scale: 1 + prog * 1.5 }],
+                    },
+                  ]}
+                />
+              </React.Fragment>
             );
           }
           if (fx.kind === 'beam') {
@@ -342,41 +541,75 @@ export default function GameCanvas({ gameState, frame }: Props) {
           }
           if (fx.kind === 'spark') {
             return (
-              <View
-                key={fx.id}
-                style={[
-                  s.sparkFx,
-                  {
-                    left: fx.x - 3,
-                    top: fx.y - 3,
-                    width: 6,
-                    height: 6,
-                    borderRadius: 3,
-                    backgroundColor: fx.color,
-                    opacity: 1 - prog,
-                    transform: [{ scale: 1 + prog * 2 }],
-                  },
-                ]}
-              />
+              <React.Fragment key={fx.id}>
+                <View
+                  style={[
+                    s.sparkFx,
+                    {
+                      left: fx.x - 3,
+                      top: fx.y - 3,
+                      width: 6,
+                      height: 6,
+                      borderRadius: 3,
+                      backgroundColor: fx.color,
+                      opacity: 1 - prog,
+                      transform: [{ scale: 1 + prog * 2 }],
+                    },
+                  ]}
+                />
+                {/* Spark rays */}
+                {[0, 1.047, 2.094, 3.14, 4.19, 5.24].map((a, ri) => (
+                  <View
+                    key={`sr-${fx.id}-${ri}`}
+                    style={[
+                      s.sparkRay,
+                      {
+                        left: fx.x,
+                        top: fx.y - 1,
+                        width: 8 + prog * 6,
+                        backgroundColor: fx.color,
+                        opacity: (1 - prog) * 0.6,
+                        transform: [{ rotate: `${a + prog}rad` }],
+                      },
+                    ]}
+                  />
+                ))}
+              </React.Fragment>
             );
           }
           if (fx.kind === 'burst') {
             return (
-              <View
-                key={fx.id}
-                style={[
-                  s.burstFx,
-                  {
-                    left: fx.x - fx.radius * (0.3 + prog * 0.7),
-                    top: fx.y - fx.radius * (0.3 + prog * 0.7),
-                    width: fx.radius * (0.6 + prog * 1.4),
-                    height: fx.radius * (0.6 + prog * 1.4),
-                    borderRadius: fx.radius,
-                    borderColor: fx.color,
-                    opacity: 1 - prog,
-                  },
-                ]}
-              />
+              <React.Fragment key={fx.id}>
+                <View
+                  style={[
+                    s.burstFx,
+                    {
+                      left: fx.x - fx.radius * (0.3 + prog * 0.7),
+                      top: fx.y - fx.radius * (0.3 + prog * 0.7),
+                      width: fx.radius * (0.6 + prog * 1.4),
+                      height: fx.radius * (0.6 + prog * 1.4),
+                      borderRadius: fx.radius,
+                      borderColor: fx.color,
+                      opacity: 1 - prog,
+                    },
+                  ]}
+                />
+                {/* Inner burst glow */}
+                <View
+                  style={[
+                    s.burstInner,
+                    {
+                      left: fx.x - fx.radius * (0.15 + prog * 0.35),
+                      top: fx.y - fx.radius * (0.15 + prog * 0.35),
+                      width: fx.radius * (0.3 + prog * 0.7),
+                      height: fx.radius * (0.3 + prog * 0.7),
+                      borderRadius: fx.radius * 0.5,
+                      backgroundColor: fx.color,
+                      opacity: (1 - prog) * 0.15,
+                    },
+                  ]}
+                />
+              </React.Fragment>
             );
           }
           return (
@@ -401,6 +634,10 @@ export default function GameCanvas({ gameState, frame }: Props) {
         {/* Player */}
         <View style={[s.playerWrap, { left: p.x - 24, top: p.y - 32 }]}>
           <View style={s.playerAura} />
+          {/* Player ground glow ring */}
+          <View style={[s.playerGroundGlow, {
+            opacity: 0.12 + Math.sin(frame * 0.06) * 0.04,
+          }]} />
           <Text style={[s.playerEmoji, p.invulnTimer > 0 && { opacity: 0.5 }]}>{p.emoji}</Text>
           <View style={s.pHpBg}>
             <View style={[s.pHp, { width: `${Math.max(0, (p.hp / p.maxHp) * 100)}%` }]} />
@@ -412,6 +649,8 @@ export default function GameCanvas({ gameState, frame }: Props) {
           const pulse = 1 + Math.sin((frame + pet.id * 9) * 0.12) * 0.06;
           const size = 24 + Math.min(10, pet.level * 1.1);
           const flashScale = 1 + pet.attackFlash * 0.18;
+          const isPrime = pet.generation >= 3;
+          const isHighLevel = pet.level >= 5;
           return (
             <View
               key={pet.id}
@@ -426,6 +665,27 @@ export default function GameCanvas({ gameState, frame }: Props) {
                 },
               ]}
             >
+              {/* Prime aura glow */}
+              {isPrime && (
+                <View style={[s.primeAura, {
+                  width: size * 1.6,
+                  height: size * 1.6,
+                  borderRadius: size * 0.8,
+                  borderColor: `${pet.color}88`,
+                  backgroundColor: `${pet.color}15`,
+                  opacity: 0.6 + Math.sin(frame * 0.08 + pet.id) * 0.2,
+                }]} />
+              )}
+              {/* High-level glow */}
+              {isHighLevel && !isPrime && (
+                <View style={[s.highLevelGlow, {
+                  width: size * 1.3,
+                  height: size * 1.3,
+                  borderRadius: size * 0.65,
+                  backgroundColor: `${pet.color}10`,
+                  borderColor: `${pet.color}44`,
+                }]} />
+              )}
               {pet.attackFlash > 0 && (
                 <View
                   style={[
@@ -442,6 +702,14 @@ export default function GameCanvas({ gameState, frame }: Props) {
               <View style={[s.petWake, { backgroundColor: `${pet.color}18`, borderColor: `${pet.color}55` }]} />
               <Text style={[s.petEmoji, { fontSize: 18 + Math.min(8, pet.level) }]}>{pet.emoji}</Text>
               {pet.level > 1 && <Text style={[s.petBadge, { backgroundColor: pet.color }]}> {pet.level} </Text>}
+              {/* Perk count indicator */}
+              {(pet.perks?.length ?? 0) > 0 && (
+                <View style={[s.perkDots]}>
+                  {pet.perks.map((pk, pi) => (
+                    <View key={pi} style={[s.perkDot, { backgroundColor: pet.color }]} />
+                  ))}
+                </View>
+              )}
             </View>
           );
         })}
@@ -481,6 +749,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
         })}
       </View>
       {(p.hp / p.maxHp) < 0.32 && <DangerVignette frame={frame} />}
+      {showCritFlash && <CritFlash frame={frame} />}
       {state.waveModifier === 'denseFog' && (
         <View style={s.fogOverlay} pointerEvents="none">
           <View style={s.fogVignette} />
@@ -496,12 +765,18 @@ const s = StyleSheet.create({
   arenaBg: { position: 'absolute', left: 0, top: 0, backgroundColor: '#050A15', borderWidth: 2, borderColor: 'rgba(45,212,191,0.24)', overflow: 'hidden' },
   arenaGlowA: { position: 'absolute', width: 620, height: 620, borderRadius: 310, left: 120, top: 120, backgroundColor: 'rgba(124,58,237,0.1)' },
   arenaGlowB: { position: 'absolute', width: 760, height: 760, borderRadius: 380, right: 120, bottom: 120, backgroundColor: 'rgba(20,184,166,0.08)' },
+  arenaGlowC: { position: 'absolute', width: 500, height: 500, borderRadius: 250, backgroundColor: 'rgba(99,102,241,0.06)' },
+  causticLight: { position: 'absolute', backgroundColor: 'rgba(186,230,253,0.06)' },
+  kelpCluster: { position: 'absolute', width: 30, height: 60, alignItems: 'center' },
+  kelpBlade: { position: 'absolute', width: 4, borderRadius: 2, bottom: 0 },
   currentLine: { position: 'absolute', height: 2, borderRadius: 2, backgroundColor: '#BAE6FD' },
   reefProp: { position: 'absolute', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
   bubble: { position: 'absolute', borderWidth: 1, borderColor: 'rgba(186,230,253,0.55)', backgroundColor: 'rgba(186,230,253,0.04)' },
+  depthMote: { position: 'absolute' },
   gridLineV: { position: 'absolute', top: 0, width: 1, backgroundColor: 'rgba(148,163,184,0.055)' },
   gridLineH: { position: 'absolute', left: 0, height: 1, backgroundColor: 'rgba(148,163,184,0.055)' },
   star: { position: 'absolute', backgroundColor: '#E0F2FE' },
+  arenaBorderPulse: { position: 'absolute', left: 0, top: 0, borderWidth: 3, backgroundColor: 'transparent' },
   entity: { position: 'absolute', textAlign: 'center' },
   hazardWrap: { position: 'absolute', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(251,146,60,0.38)', backgroundColor: 'rgba(251,146,60,0.07)' },
   hazardPulse: { position: 'absolute', borderWidth: 2, borderColor: 'rgba(251,146,60,0.42)', backgroundColor: 'rgba(251,146,60,0.08)' },
@@ -514,27 +789,36 @@ const s = StyleSheet.create({
   pickup: { textShadowColor: 'rgba(45,212,191,0.75)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 },
   enemyWrap: { position: 'absolute', alignItems: 'center' },
   enemyEmoji: { textShadowColor: 'rgba(0,0,0,0.85)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
+  eliteAura: { position: 'absolute', borderWidth: 2, backgroundColor: 'transparent' },
   telegraphBarBg: { position: 'absolute', top: -8, width: 24, height: 3, borderRadius: 2, backgroundColor: 'rgba(239,68,68,0.18)', overflow: 'hidden' },
   telegraphBar: { height: 3, borderRadius: 2, backgroundColor: '#EF4444' },
   hpBarBg: { width: 30, height: 3, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 2, marginTop: 2 },
   hpBar: { height: 3, backgroundColor: '#EF4444', borderRadius: 2 },
   playerWrap: { position: 'absolute', alignItems: 'center', width: 48 },
   playerAura: { position: 'absolute', top: 30, width: 42, height: 14, borderRadius: 21, backgroundColor: 'rgba(45,212,191,0.12)' },
+  playerGroundGlow: { position: 'absolute', top: 22, width: 56, height: 22, borderRadius: 28, backgroundColor: 'rgba(45,212,191,0.08)', borderWidth: 1, borderColor: 'rgba(45,212,191,0.1)' },
   playerEmoji: { fontSize: 40, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.85)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 5 },
   shieldIcon: { position: 'absolute', top: -5, fontSize: 20 },
   petWrap: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
+  primeAura: { position: 'absolute', borderWidth: 2, alignSelf: 'center' },
+  highLevelGlow: { position: 'absolute', borderWidth: 1, alignSelf: 'center' },
   petAttackLine: { position: 'absolute', left: '50%', top: '48%', width: 34, height: 3, borderRadius: 2 },
   petHealBloom: { position: 'absolute', width: '118%', height: '118%', borderRadius: 22, borderWidth: 1 },
   petWake: { position: 'absolute', width: '100%', height: '72%', borderRadius: 16, borderWidth: 1 },
   petEmoji: { fontSize: 20, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
   petBadge: { position: 'absolute', right: -7, bottom: -5, minWidth: 14, height: 14, borderRadius: 7, overflow: 'hidden', color: '#FFF', fontSize: 8, fontWeight: '900', textAlign: 'center', textAlignVertical: 'center' },
+  perkDots: { position: 'absolute', left: -4, top: -3, flexDirection: 'row', gap: 2 },
+  perkDot: { width: 4, height: 4, borderRadius: 2 },
   pHpBg: { width: 40, height: 4, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 2, marginTop: 2 },
   pHp: { height: 4, backgroundColor: '#22C55E', borderRadius: 2 },
   projectileGlow: { position: 'absolute', width: 16, height: 16, borderRadius: 8, borderWidth: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.04)' },
-  projectileTrail: { position: 'absolute', width: 22, height: 3, borderRadius: 2, left: -14 },
+  projectileEvolved: { borderWidth: 2, backgroundColor: 'rgba(245,158,11,0.08)', shadowColor: '#F59E0B', shadowOpacity: 0.5, shadowRadius: 6, shadowOffset: { width: 0, height: 0 } },
+  projectileGhost: { position: 'absolute', width: 14, height: 14, borderRadius: 7, borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  projectileTrail: { position: 'absolute', height: 3, borderRadius: 2, left: -14 },
   projectileText: { fontWeight: '900', textAlign: 'center' },
   slashFx: { position: 'absolute', borderTopWidth: 5, borderRightWidth: 2, borderBottomWidth: 0, borderLeftWidth: 0 },
   muzzleFx: { position: 'absolute', height: 4, borderRadius: 3, shadowColor: '#FBBF24', shadowOpacity: 0.7, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
+  muzzleSpark: { position: 'absolute', width: 8, height: 8, borderRadius: 4 },
   beamFx: { position: 'absolute', height: 3, borderRadius: 3, shadowColor: '#A78BFA', shadowOpacity: 0.8, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
   zapFx: { position: 'absolute', borderWidth: 2, backgroundColor: 'rgba(167,139,250,0.08)' },
   healFx: { position: 'absolute', fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3 },
@@ -542,9 +826,12 @@ const s = StyleSheet.create({
   shieldBarBg: { height: 2, backgroundColor: 'rgba(255,255,255,0.1)', borderRadius: 1, marginTop: 1 },
   shieldBar: { height: 2, backgroundColor: '#2DD4BF', borderRadius: 1 },
   sparkFx: { position: 'absolute' },
+  sparkRay: { position: 'absolute', height: 2, borderRadius: 1 },
   burstFx: { position: 'absolute', borderWidth: 3, backgroundColor: 'transparent' },
+  burstInner: { position: 'absolute' },
   deathParticle: { position: 'absolute', textAlign: 'center', fontWeight: '800' },
   dangerVignette: { ...StyleSheet.absoluteFillObject, borderWidth: 18, borderColor: 'rgba(239,68,68,0.22)', backgroundColor: 'rgba(127,29,29,0.06)' },
+  critFlash: { ...StyleSheet.absoluteFillObject, borderWidth: 6, borderColor: 'rgba(245,158,11,0.35)', backgroundColor: 'rgba(245,158,11,0.03)' },
   fogOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 5, pointerEvents: 'none' },
   fogVignette: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(100,120,140,0.15)' },
   dmgNum: { position: 'absolute', fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 },
