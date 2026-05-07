@@ -58,31 +58,34 @@ export default function HUD({ data, onPause }: Props) {
           );
         })}
       </View>
-      {(data?.resourceCount ?? 0) > 0 && (
-        <View style={s.objectivePill}>
-          <Text style={s.objectiveText}>💠 {data.resourceCount} caches</Text>
-        </View>
-      )}
-      {comboActive && (
-        <View style={s.comboPill}>
-          <Text style={s.comboText}>{data.comboCount}x</Text>
-          <View style={s.comboTimerBg}>
-            <View style={[s.comboTimerFill, { width: `${Math.max(0, Math.min(100, (data.comboTimer / 3.2) * 100))}%` }]} />
+      {/* Stacked banners — combo, objective, modifier — to avoid overlap */}
+      <View style={s.bannerStack} pointerEvents="none">
+        {comboActive && (
+          <View style={s.comboPill}>
+            <Text style={s.comboText}>{data.comboCount}x</Text>
+            <View style={s.comboTimerBg}>
+              <View style={[s.comboTimerFill, { width: `${Math.max(0, Math.min(100, (data.comboTimer / 3.2) * 100))}%` }]} />
+            </View>
           </View>
-        </View>
-      )}
-      {showModifier && data?.waveModifier && data.waveModifier !== 'none' && (
-        <View style={s.modifierBanner}>
-          <Text style={s.modifierText}>{MODIFIER_NAMES[data.waveModifier] ?? data.waveModifier}</Text>
-        </View>
-      )}
-      {(data?.petSynergies?.length ?? 0) > 0 && (
-        <View style={s.synergyPill}>
-          {data.petSynergies!.map(syn => (
-            <Text key={syn.kind} style={s.synergyPillText}>⚡{syn.bonusPct}%</Text>
-          ))}
-        </View>
-      )}
+        )}
+        {showModifier && data?.waveModifier && data.waveModifier !== 'none' && (
+          <View style={s.modifierBanner}>
+            <Text style={s.modifierText}>{MODIFIER_NAMES[data.waveModifier] ?? data.waveModifier}</Text>
+          </View>
+        )}
+        {(data?.resourceCount ?? 0) > 0 && (
+          <View style={s.objectivePill}>
+            <Text style={s.objectiveText}>💠 {data.resourceCount} caches</Text>
+          </View>
+        )}
+        {(data?.petSynergies?.length ?? 0) > 0 && (
+          <View style={s.synergyPill}>
+            {data.petSynergies!.map(syn => (
+              <Text key={syn.kind} style={s.synergyPillText}>⚡{syn.bonusPct}%</Text>
+            ))}
+          </View>
+        )}
+      </View>
     </View>
   );
 }
@@ -114,13 +117,14 @@ const s = StyleSheet.create({
   weaponSlotReady: { borderColor: '#F59E0B', shadowColor: '#F59E0B', shadowOpacity: 0.6, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
   weaponProgress: { position: 'absolute', left: 0, bottom: 0, height: 3, backgroundColor: '#F59E0B' },
   weaponEmoji: { fontSize: 16, zIndex: 2 },
-  comboPill: { position: 'absolute', top: 38, alignSelf: 'center', minWidth: 76, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: 'rgba(45,212,191,0.16)', borderWidth: 1, borderColor: 'rgba(45,212,191,0.5)', alignItems: 'center' },
+  bannerStack: { alignItems: 'center', marginTop: 8, gap: 6 },
+  comboPill: { minWidth: 76, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: 'rgba(45,212,191,0.16)', borderWidth: 1, borderColor: 'rgba(45,212,191,0.5)', alignItems: 'center' },
   comboText: { color: '#CCFBF1', fontSize: 15, fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
   comboTimerBg: { width: 54, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.16)', marginTop: 3, overflow: 'hidden' },
   comboTimerFill: { height: 3, borderRadius: 2, backgroundColor: '#2DD4BF' },
-  objectivePill: { position: 'absolute', left: 12, top: 78, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10, backgroundColor: 'rgba(15,23,42,0.72)', borderWidth: 1, borderColor: 'rgba(125,211,252,0.22)' },
+  objectivePill: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10, backgroundColor: 'rgba(15,23,42,0.72)', borderWidth: 1, borderColor: 'rgba(125,211,252,0.22)' },
   objectiveText: { color: '#BAE6FD', fontSize: 11, fontWeight: '800' },
-  modifierBanner: { position: 'absolute', top: 100, alignSelf: 'center', paddingHorizontal: 16, paddingVertical: 6, borderRadius: 12, backgroundColor: 'rgba(245,158,11,0.2)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.5)' },
+  modifierBanner: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 12, backgroundColor: 'rgba(245,158,11,0.2)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.5)' },
   modifierText: { color: '#F59E0B', fontSize: 13, fontWeight: '800', textTransform: 'capitalize' },
   synergyPill: { position: 'absolute', right: 12, top: 78, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: 'rgba(99,102,241,0.16)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.35)', flexDirection: 'row', gap: 6 },
   synergyPillText: { color: '#A78BFA', fontSize: 11, fontWeight: '800' },

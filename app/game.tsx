@@ -11,7 +11,7 @@ import {
   applyLevelUpChoice, startNextWave,
 } from '../engine/GameEngine';
 import { saveHighScore } from '../services/storage';
-import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS } from '../engine/data';
+import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ITEM_DEFS } from '../engine/data';
 import { playSound, resumeAudio } from '../services/audio';
 import { addRunToProgression, getProgression } from '../engine/progression';
 import { checkAchievements, type Achievement } from '../engine/achievements';
@@ -86,6 +86,7 @@ export default function GameScreen() {
   const [achievementToast, setAchievementToast] = useState<Achievement[]>([]);
   const [runAchievements, setRunAchievements] = useState<Achievement[]>([]);
   const [initializedRunKey, setInitializedRunKey] = useState<string | null>(null);
+  const [showControlsHint, setShowControlsHint] = useState<boolean>(Platform.OS === 'web');
   const scoreSaved = useRef(false);
   const achievementsChecked = useRef(false);
   const isFocusedRef = useRef(isFocused);
@@ -338,6 +339,7 @@ export default function GameScreen() {
       const key = event.key.toLowerCase();
       if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'a', 'd', 'w', 's', ' '].includes(key)) {
         event.preventDefault();
+        setShowControlsHint(false);
       }
       if (key === ' ' && !event.repeat) {
         handleAbility();
@@ -406,6 +408,11 @@ export default function GameScreen() {
             maxCooldown={activeHudData?.abilityMaxCd ?? 30}
             onPress={handleAbility}
           />
+          {Platform.OS === 'web' && showControlsHint && (
+            <View style={s.controlsHint} pointerEvents="none">
+              <Text style={s.controlsText}>WASD / Arrows · Space ability · P pause</Text>
+            </View>
+          )}
         </>
       )}
       {activePhase === 'paused' && (
@@ -447,6 +454,9 @@ export default function GameScreen() {
           weapons={(state?.player?.weapons ?? []).map(w => ({ 
             emoji: (w?.evolved ? EVOLVED_WEAPONS[w?.id] : WEAPONS[w?.id])?.emoji ?? '?' 
           }))}
+          items={(state?.player?.items ?? []).map(it => ({
+            emoji: ITEM_DEFS.find(d => d.id === it?.id)?.emoji ?? '?',
+          }))}
           achievements={runAchievements}
           onRetry={handleRetry}
           onMenu={handleMenu}
@@ -462,6 +472,8 @@ const s = StyleSheet.create({
   announceText: { fontSize: 36, fontWeight: '900', color: '#FFF', textShadowColor: 'rgba(99,102,241,0.6)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 16, letterSpacing: 4 },
   bossDarken: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(0,0,0,0.35)', zIndex: 25 },
   bossAnnounceText: { color: '#F59E0B', textShadowColor: 'rgba(245,158,11,0.7)', fontSize: 40 },
+  controlsHint: { position: 'absolute', bottom: 12, alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(15,25,60,0.65)', borderWidth: 1, borderColor: 'rgba(148,163,184,0.18)', zIndex: 11 },
+  controlsText: { color: '#94A3B8', fontSize: 11, fontWeight: '600', letterSpacing: 0.5 },
   achievementToast: { position: 'absolute', top: 80, alignSelf: 'center', zIndex: 60, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(15,25,60,0.95)', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(245,158,11,0.4)', gap: 12 },
   achievementEmoji: { fontSize: 32 },
   achievementTitle: { color: '#F59E0B', fontSize: 10, fontWeight: '800', letterSpacing: 1 },

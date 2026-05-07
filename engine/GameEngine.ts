@@ -141,7 +141,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     combo: { count: 0, timer: 0, best: 0 },
     shake: { x: 0, y: 0, timer: 0, intensity: 0 },
     phase: 'waveAnnounce', prevPhase: 'waveAnnounce',
-    stats: { enemiesKilled: 0, damageDealt: 0, damageTaken: 0, materialsCollected: 0, elitesKilled: 0, weaponsEvolved: 0, wasHit: false, startTime: Date.now() },
+    stats: { enemiesKilled: 0, damageDealt: 0, damageTaken: 0, materialsCollected: 0, elitesKilled: 0, weaponsEvolved: 0, wasHit: false, startTime: Date.now(), bestCombo: 0, modifiersSeen: [] },
     shopSlots: [], levelUpOptions: [], _levelUpApply: [],
     rerollCost: REROLL_BASE,
     healCost: HEAL_BASE_COST,
@@ -229,6 +229,9 @@ function rollWaveModifier(state: GameState): void {
   if (rng(0, 1) < 0.35) {
     state.waveModifier = WAVE_MODIFIERS[rngInt(0, WAVE_MODIFIERS.length - 1)];
     state.modifierAnnounceTimer = 2.5;
+    if (!state.stats.modifiersSeen.includes(state.waveModifier)) {
+      state.stats.modifiersSeen.push(state.waveModifier);
+    }
   } else {
     state.waveModifier = 'none';
   }
@@ -720,6 +723,7 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   state.combo.count++;
   state.combo.timer = COMBO_TIME;
   state.combo.best = Math.max(state.combo.best, state.combo.count);
+  state.stats.bestCombo = state.combo.best;
   
   // Hit stop on kill
   state.hitStop = Math.max(state.hitStop, KILL_HIT_STOP);
