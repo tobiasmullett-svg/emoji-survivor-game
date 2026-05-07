@@ -62,8 +62,13 @@ function resolvePlayableSkinId(requestedSkinId: string | undefined, characterId:
 export default function GameScreen() {
   useKeepAwake();
   const router = useRouter();
-  const { characterId, skinId } = useLocalSearchParams<{ characterId?: string | string[]; skinId?: string | string[] }>();
+  const { characterId, skinId, runId } = useLocalSearchParams<{ characterId?: string | string[]; skinId?: string | string[]; runId?: string | string[] }>();
+  const routeCharacterId = getRouteCharacterId(characterId);
+  const routeSkinId = getRouteCharacterId(skinId);
+  const routeRunId = getRouteCharacterId(runId);
+  const currentRunKey = `${routeCharacterId ?? ''}:${routeSkinId ?? ''}:${routeRunId ?? 'legacy'}`;
   const gameRef = useRef<GameState | null>(null);
+  const emptyGameRef = useRef<GameState | null>(null);
   const inputRef = useRef<Vec2>({ x: 0, y: 0 });
   const keysRef = useRef<Set<string>>(new Set());
   const phaseRef = useRef<GamePhase>('waveAnnounce');
@@ -72,8 +77,10 @@ export default function GameScreen() {
   const [hudData, setHudData] = useState<HudData>(defaultHud);
   const [achievementToast, setAchievementToast] = useState<Achievement[]>([]);
   const [runAchievements, setRunAchievements] = useState<Achievement[]>([]);
+  const [initializedRunKey, setInitializedRunKey] = useState<string | null>(null);
   const scoreSaved = useRef(false);
   const achievementsChecked = useRef(false);
+  const isCurrentRunInitialized = initializedRunKey === currentRunKey && gameRef.current !== null;
 
   // Auto-hide achievement toast
   useEffect(() => {
@@ -85,8 +92,9 @@ export default function GameScreen() {
   useEffect(() => {
     let cancelled = false;
     const { width, height } = Dimensions.get('window');
-    const requestedCharacter = getRouteCharacterId(characterId);
-    const requestedSkin = getRouteCharacterId(skinId);
+    const requestedCharacter = routeCharacterId;
+    const requestedSkin = routeSkinId;
+    setInitializedRunKey(null);
     gameRef.current = null;
     phaseRef.current = 'waveAnnounce';
     setPhase('waveAnnounce');
@@ -102,11 +110,13 @@ export default function GameScreen() {
       gameRef.current = initGameState(selectedCharacter, width, height, prog.startingBonuses);
       gameRef.current.player.emoji = getSkinEmoji(selectedCharacter, selectedSkin);
       setHudData(extractHudData(gameRef.current));
+      setInitializedRunKey(currentRunKey);
     }).catch(() => {
       if (cancelled) return;
       const selectedCharacter = resolvePlayableCharacterId(requestedCharacter, [DEFAULT_CHARACTER]);
       gameRef.current = initGameState(selectedCharacter, width, height);
       setHudData(extractHudData(gameRef.current));
+      setInitializedRunKey(currentRunKey);
     });
     resumeAudio();
     let lastTs = 0;
@@ -150,7 +160,7 @@ export default function GameScreen() {
       cancelled = true;
       cancelAnimationFrame(animationFrameId);
     };
-  }, [characterId, skinId]);
+  }, [currentRunKey]);
 
   useEffect(() => {
     const sub = Dimensions.addEventListener('change', ({ window }) => {
@@ -164,6 +174,7 @@ export default function GameScreen() {
 
   // Save high score + progression + achievements on game over
   useEffect(() => {
+    if (!isCurrentRunInitialized) return;
     if (phase === 'gameover' && !scoreSaved.current) {
       scoreSaved.current = true;
       const state = gameRef.current;
@@ -207,7 +218,7 @@ export default function GameScreen() {
         playSound(state.victory ? 'victory' : 'gameOver');
       }
     }
-  }, [phase]);
+  }, [phase, isCurrentRunInitialized, currentRunKey, initializedRunKey]);
 
   // Back button
   useEffect(() => {
@@ -239,8 +250,9 @@ export default function GameScreen() {
 
   const handleRestart = useCallback(() => {
     const { width, height } = Dimensions.get('window');
-    const requestedCharacter = getRouteCharacterId(characterId);
-    const requestedSkin = getRouteCharacterId(skinId);
+    const requestedCharacter = routeCharacterId;
+    const requestedSkin = routeSkinId;
+    setInitializedRunKey(null);
     gameRef.current = null;
     phaseRef.current = 'waveAnnounce';
     setPhase('waveAnnounce');
@@ -255,12 +267,14 @@ export default function GameScreen() {
       gameRef.current = initGameState(selectedCharacter, width, height, prog.startingBonuses);
       gameRef.current.player.emoji = getSkinEmoji(selectedCharacter, selectedSkin);
       setHudData(extractHudData(gameRef.current));
+      setInitializedRunKey(currentRunKey);
     }).catch(() => {
       const selectedCharacter = resolvePlayableCharacterId(requestedCharacter, [DEFAULT_CHARACTER]);
       gameRef.current = initGameState(selectedCharacter, width, height);
       setHudData(extractHudData(gameRef.current));
+      setInitializedRunKey(currentRunKey);
     });
-  }, [characterId, skinId]);
+  }, [currentRunKey, routeCharacterId, routeSkinId]);
 
   const handleAbility = useCallback(() => {
     const state = gameRef.current;
@@ -338,61 +352,64 @@ export default function GameScreen() {
     };
   }, [handleAbility, handlePause, handleResume]);
 
-  const isGameplay = phase === 'playing' || phase === 'waveAnnounce' || phase === 'collecting';
-  const state = gameRef.current;
+  const activePhase = isCurrentRunInitialized ? phase : 'waveAnnounce';
+  const activeHudData = isCurrentRunInitialized ? hudData : defaultHud;
+  const activeGameRef = isCurrentRunInitialized ? gameRef : emptyGameRef;
+  const isGameplay = activePhase === 'playing' || activePhase === 'waveAnnounce' || activePhase === 'collecting';
+  const state = isCurrentRunInitialized ? gameRef.current : null;
 
   return (
     <View style={s.container}>
-      <GameCanvas gameState={gameRef} frame={frame} />
-      {phase === 'waveAnnounce' && (
+      <GameCanvas gameState={activeGameRef} frame={frame} />
+      {activePhase === 'waveAnnounce' && (
         <>
-          {BOSS_WAVE_CHECK(hudData?.waveNum) && (
+          {BOSS_WAVE_CHECK(activeHudData?.waveNum) && (
             <View style={s.bossDarken} pointerEvents="none" />
           )}
           <View style={s.announce} pointerEvents="none">
-            <Text style={[s.announceText, BOSS_WAVE_CHECK(hudData?.waveNum) && s.bossAnnounceText]}>
-              {BOSS_WAVE_CHECK(hudData?.waveNum) ? '\u26A0\uFE0F BOSS INCOMING' : `WAVE ${hudData?.waveNum ?? 1}`}
+            <Text style={[s.announceText, BOSS_WAVE_CHECK(activeHudData?.waveNum) && s.bossAnnounceText]}>
+              {BOSS_WAVE_CHECK(activeHudData?.waveNum) ? '\u26A0\uFE0F BOSS INCOMING' : `WAVE ${activeHudData?.waveNum ?? 1}`}
             </Text>
           </View>
         </>
       )}
-      {phase === 'collecting' && (
+      {activePhase === 'collecting' && (
         <View style={s.announce} pointerEvents="none">
           <Text style={[s.announceText, { color: '#22C55E' }]}>WAVE COMPLETE!</Text>
         </View>
       )}
       {isGameplay && (
         <>
-          <HUD data={hudData} onPause={handlePause} />
+          <HUD data={activeHudData} onPause={handlePause} />
           <VirtualJoystick onInput={handleInput} />
           <AbilityButton
-            emoji={hudData?.abilityEmoji ?? '\u2B50'}
-            cooldown={hudData?.abilityCd ?? 0}
-            maxCooldown={hudData?.abilityMaxCd ?? 30}
+            emoji={activeHudData?.abilityEmoji ?? '\u2B50'}
+            cooldown={activeHudData?.abilityCd ?? 0}
+            maxCooldown={activeHudData?.abilityMaxCd ?? 30}
             onPress={handleAbility}
           />
         </>
       )}
-      {phase === 'paused' && (
+      {activePhase === 'paused' && (
         <PauseOverlay
           stats={state?.stats ?? null}
-          waveNum={hudData?.waveNum ?? 1}
+          waveNum={activeHudData?.waveNum ?? 1}
           onResume={handleResume}
           onRestart={handleRestart}
           onQuit={handleMenu}
         />
       )}
-      {phase === 'levelup' && (
+      {activePhase === 'levelup' && (
         <LevelUpModal
           options={state?.levelUpOptions ?? []}
           onChoose={handleLevelUp}
         />
       )}
-      {phase === 'shopping' && (
+      {activePhase === 'shopping' && (
         <ShopOverlay gameState={gameRef} onNextWave={handleNextWave} />
       )}
       {/* Achievement toasts */}
-      {achievementToast.length > 0 && (
+      {isCurrentRunInitialized && achievementToast.length > 0 && (
         <View style={s.achievementToast}>
           <Text style={s.achievementEmoji}>{achievementToast[0].emoji}</Text>
           <View>
@@ -402,7 +419,7 @@ export default function GameScreen() {
           </View>
         </View>
       )}
-      {phase === 'gameover' && (
+      {activePhase === 'gameover' && (
         <GameOverOverlay
           stats={state?.stats ?? null}
           waveNum={state?.wave?.number ?? 1}

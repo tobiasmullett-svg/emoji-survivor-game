@@ -39,7 +39,14 @@ export default function CharacterSelectScreen() {
 
   const handleStart = () => {
     if (selectedCharacter && canStart) {
-      router.push({ pathname: '/game', params: { characterId: selectedCharacter.id, skinId: selectedSkinId } });
+      router.push({
+        pathname: '/game',
+        params: {
+          characterId: selectedCharacter.id,
+          skinId: selectedSkinId,
+          runId: `${Date.now()}-${Math.random().toString(36).slice(2)}`,
+        },
+      });
     }
   };
 
