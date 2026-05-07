@@ -3,7 +3,7 @@ import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import type { GameState } from '../../engine/types';
 import { RARITY_COLORS, WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST } from '../../engine/constants';
 import { buyShopItem, rerollShop, healPlayer, buyEgg, trainPets, fusePets, evolveWeapon, getPetSynergies } from '../../engine/GameEngine';
-import { WEAPONS, EVOLVED_WEAPONS } from '../../engine/data';
+import { WEAPONS, EVOLVED_WEAPONS, ITEM_DEFS } from '../../engine/data';
 
 interface Props {
   gameState: React.RefObject<GameState | null>;
@@ -238,6 +238,23 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
             );
           })}
         </View>
+        {/* Equipped items inventory */}
+        {(player?.items?.length ?? 0) > 0 && (
+          <>
+            <Text style={s.invTitle}>Equipped Items</Text>
+            <View style={s.itemInvRow}>
+              {(player?.items ?? []).map((it, i) => {
+                const def = ITEM_DEFS.find(d => d.id === it.id);
+                const rc = RARITY_COLORS[it.rarity] ?? '#9CA3AF';
+                return (
+                  <View key={i} style={[s.itemInvSlot, { borderColor: rc }]}>
+                    <Text style={s.itemInvEmoji}>{def?.emoji ?? '?'}</Text>
+                  </View>
+                );
+              })}
+            </View>
+          </>
+        )}
         {readyWeapons.length > 0 && (
           <View style={s.evolutionLab}>
             <Text style={s.evolutionTitle}>🔮 Evolution Lab</Text>
@@ -301,6 +318,9 @@ const s = StyleSheet.create({
   invProgress: { position: 'absolute', bottom: 0, left: 0, height: 3, backgroundColor: '#F59E0B' },
   invEmoji: { fontSize: 18, zIndex: 2 },
   killText: { position: 'absolute', bottom: 4, color: '#FFF', fontSize: 7, fontWeight: '800', zIndex: 2, textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  itemInvRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
+  itemInvSlot: { width: 32, height: 32, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
+  itemInvEmoji: { fontSize: 18 },
   evolutionLab: { marginTop: 14, borderRadius: 14, padding: 12, backgroundColor: 'rgba(245,158,11,0.1)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.28)' },
   evolutionTitle: { color: '#F59E0B', fontSize: 14, fontWeight: '900', marginBottom: 8 },
   evolveBtn: { backgroundColor: 'rgba(245,158,11,0.18)', borderRadius: 10, padding: 10, marginBottom: 6, borderWidth: 1, borderColor: 'rgba(245,158,11,0.35)' },

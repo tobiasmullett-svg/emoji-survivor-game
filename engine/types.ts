@@ -171,6 +171,8 @@ export interface RunStats {
   weaponsEvolved: number;
   wasHit: boolean;
   startTime: number;
+  bestCombo: number;
+  modifiersSeen: WaveModifier[];
 }
 
 export interface ShopSlot {

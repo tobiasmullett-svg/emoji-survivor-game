@@ -48,8 +48,11 @@ export default function VirtualJoystick({ onInput }: Props) {
   ).current;
 
   return (
-    <View style={styles.container} {...pan.panHandlers}>
-      <View style={[styles.outer, active && styles.outerActive]}>
+    <View style={styles.container} pointerEvents="box-none">
+      <View
+        {...pan.panHandlers}
+        style={[styles.outer, active && styles.outerActive]}
+      >
         <View
           style={[
             styles.knob,

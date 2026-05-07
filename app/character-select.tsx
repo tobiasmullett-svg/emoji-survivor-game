@@ -80,12 +80,17 @@ export default function CharacterSelectScreen() {
               style={[s.card, { width: cardWidth }, selected === i && s.cardSelected, !unlocked && s.cardLocked]}
               accessibilityRole="button" accessibilityLabel={c.name}
             >
-              {!unlocked && (
-                <View style={s.lockOverlay}>
-                  <Text style={s.lockEmoji}>🔒</Text>
-                  <Text style={s.lockText}>Reach Wave {c.id === 'octopus' ? '5' : '10'}</Text>
-                </View>
-              )}
+              {!unlocked && (() => {
+                const required = c.id === 'octopus' ? 5 : 10;
+                const best = progression?.highestWave ?? 0;
+                return (
+                  <View style={s.lockOverlay}>
+                    <Text style={s.lockEmoji}>🔒</Text>
+                    <Text style={s.lockText}>Reach Wave {required}</Text>
+                    <Text style={s.lockProgress}>Best: Wave {best} / {required}</Text>
+                  </View>
+                );
+              })()}
               <Text style={[s.emoji, !unlocked && { opacity: 0.4 }]}>{getSkinEmoji(c.id, progression?.selectedSkins[c.id])}</Text>
               <Text style={[s.name, !unlocked && { opacity: 0.4 }]}>{c.name}</Text>
               <Text style={[s.desc, !unlocked && { opacity: 0.4 }]}>{c.desc}</Text>
@@ -169,6 +174,7 @@ const s = StyleSheet.create({
   lockOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, justifyContent: 'center', alignItems: 'center', zIndex: 10, backgroundColor: 'rgba(5,10,21,0.6)', borderRadius: 14 },
   lockEmoji: { fontSize: 32, marginBottom: 4 },
   lockText: { color: '#94A3B8', fontSize: 12, fontWeight: '700' },
+  lockProgress: { color: '#64748B', fontSize: 11, fontWeight: '600', marginTop: 4 },
   emoji: { fontSize: 60, marginBottom: 8, textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 3 }, textShadowRadius: 6 },
   name: { color: '#FFF', fontSize: 20, fontWeight: '800', marginBottom: 4 },
   desc: { color: '#CBD5E1', fontSize: 14, marginBottom: 12 },
