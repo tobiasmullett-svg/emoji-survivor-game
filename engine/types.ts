@@ -221,6 +221,7 @@ export interface GameState {
   hitStop: number;
   waveModifier: WaveModifier;
   modifierAnnounceTimer: number;
+  time: number;
 }
 
 export interface CharacterDef {

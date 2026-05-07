@@ -111,6 +111,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     hitStop: 0,
     waveModifier: 'none',
     modifierAnnounceTimer: 0,
+    time: 0,
   };
   spawnResourceNodes(state, 5);
   return state;
@@ -131,6 +132,13 @@ export function updateGame(state: GameState, dt: number, input: Vec2): void {
     updateDeathParticles(state, dt);
     updateShake(state, dt);
     return;
+  }
+
+  // Game time only advances during active play, so paused/hit-stopped
+  // visuals (ghost wobble, pet orbit) freeze cleanly.
+  state.time += dt;
+  if (state.modifierAnnounceTimer > 0) {
+    state.modifierAnnounceTimer = Math.max(0, state.modifierAnnounceTimer - dt);
   }
 
   updatePlayer(state, dt, input);
@@ -171,7 +179,6 @@ function updateAnnounce(state: GameState, dt: number): void {
   if (state.modifierAnnounceTimer > 0) state.modifierAnnounceTimer -= dt;
   if (state.wave.announceTimer <= 0) {
     state.phase = 'playing';
-    state.modifierAnnounceTimer = 0;
   }
 }
 
@@ -302,9 +309,9 @@ function updateEnemies(state: GameState, dt: number): void {
       // Move toward player
       let nx = dx / d;
       let ny = dy / d;
-      // Ghost wobble
+      // Ghost wobble (uses engine time so it freezes during pause/hitstop)
       if (e.type === 'ghost') {
-        const wobble = Math.sin(Date.now() * 0.003 + e.id * 7) * 0.6;
+        const wobble = Math.sin(state.time * 3 + e.id * 7) * 0.6;
         const a = Math.atan2(ny, nx) + wobble;
         nx = Math.cos(a);
         ny = Math.sin(a);
@@ -364,7 +371,7 @@ function separateEnemies(state: GameState): void {
 function updatePets(state: GameState, dt: number): void {
   const p = state.player;
   state.pets.forEach((pet, i) => {
-    const orbit = Date.now() * 0.002 + i * ((Math.PI * 2) / Math.max(1, state.pets.length));
+    const orbit = state.time * 2 + i * ((Math.PI * 2) / Math.max(1, state.pets.length));
     const levelScale = 1 + Math.min(0.55, (pet.level - 1) * 0.06);
     pet.attackFlash = Math.max(0, pet.attackFlash - dt * 3.5);
     if (pet.attackFlash <= 0) pet.action = 'idle';
@@ -808,7 +815,7 @@ function checkEnemyPlayerHits(state: GameState): void {
   const p = state.player;
   if (p.invulnTimer > 0 || p.abilityActive) return;
   for (const e of state.enemies) {
-    if (!e.alive || e.type === 'spitter') continue; // spitters only do ranged damage
+    if (!e.alive) continue;
     const d = dist(p, e);
     if (d < p.radius + e.radius) {
       const dodgeRoll = rng(0, 100);
@@ -987,6 +994,15 @@ function updateShake(state: GameState, dt: number): void {
 function updateWaveTimer(state: GameState, dt: number): void {
   state.wave.timer -= dt;
   if (state.wave.timer <= 0) {
+    // Boss waves cannot end on a timer expiring — the boss must actually die.
+    // Spawning is already gated by maxSpawns so adds will stop naturally.
+    if (isBossWave(state.wave.number)) {
+      const bossAlive = state.wave.bossSpawned && state.enemies.some(e => e.alive && e.isBoss);
+      if (bossAlive) {
+        state.wave.timer = 0;
+        return;
+      }
+    }
     endWave(state);
   }
 }
@@ -1256,7 +1272,7 @@ function applyStatChange(p: PlayerState, stat: string, amount: number): void {
     case 'luck': p.luck += amount; break;
     case 'harvesting': p.harvesting += amount; break;
     case 'attackSpeed': p.attackSpeedMult += amount / 100; break;
-    case 'critChance': p.critChance += amount; break;
+    case 'critChance': p.critChance = Math.min(100, p.critChance + amount); break;
     case 'pickupRange': p.pickupRange += amount; break;
     case 'heal': p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * amount / 100)); break;
   }
@@ -1306,18 +1322,24 @@ export function generateShopItems(state: GameState): void {
   }
 }
 
-export function evolveWeapon(state: GameState, weaponIndex: number): boolean {
+function applyEvolution(state: GameState, weaponIndex: number): void {
   const weapon = state.player.weapons[weaponIndex];
-  if (!weapon || weapon.evolved) return false;
-  if (weapon.killCount < WEAPON_EVOLVE_KILLS) return false;
-  if (state.materials < WEAPON_EVOLVE_COST) return false;
-  state.materials -= WEAPON_EVOLVE_COST;
+  if (!weapon || weapon.evolved) return;
   weapon.evolved = true;
   state.stats.weaponsEvolved++;
   playSound('evolve');
   addDmgNum(state, state.player.x, state.player.y - 50, `${EVOLVED_WEAPONS[weapon.id]?.name ?? 'Weapon'}!`, '#F59E0B');
   addEffect(state, state.player.x, state.player.y, 'burst', '#F59E0B', 0, 70);
   state.shake = { x: 0, y: 0, timer: 0.35, intensity: 6 };
+}
+
+export function evolveWeapon(state: GameState, weaponIndex: number): boolean {
+  const weapon = state.player.weapons[weaponIndex];
+  if (!weapon || weapon.evolved) return false;
+  if (weapon.killCount < WEAPON_EVOLVE_KILLS) return false;
+  if (state.materials < WEAPON_EVOLVE_COST) return false;
+  state.materials -= WEAPON_EVOLVE_COST;
+  applyEvolution(state, weaponIndex);
   return true;
 }
 
@@ -1325,14 +1347,15 @@ export function buyShopItem(state: GameState, index: number): boolean {
   const slot = state.shopSlots?.[index];
   if (!slot || slot.bought || state.materials < slot.price) return false;
 
-  // Check for duplicate weapon -> evolve
+  // Check for duplicate weapon -> evolve. The shop slot price is the only
+  // material cost in this path; we do NOT also charge WEAPON_EVOLVE_COST.
   if (slot.kind === 'weapon' && slot.weaponId) {
     const existing = state.player.weapons.find(w => w.id === slot.weaponId && !w.evolved);
     if (existing && existing.killCount >= WEAPON_EVOLVE_KILLS) {
-      // Evolve existing weapon
       state.materials -= slot.price;
       slot.bought = true;
-      return evolveWeapon(state, state.player.weapons.indexOf(existing));
+      applyEvolution(state, state.player.weapons.indexOf(existing));
+      return true;
     }
     // If it did not evolve, it consumes a weapon slot. Never exceed capacity.
     if (state.player.weapons.length >= 6) return false;
