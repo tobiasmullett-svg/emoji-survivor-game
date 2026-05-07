@@ -89,6 +89,8 @@ function getWaveDuration(waveNumber: number): number {
 // ═══ ID Generator ═══
 let _nid = 1;
 const nid = () => _nid++;
+/** Reset the auto-incrementing ID counter (for test isolation). */
+export function resetIdCounter(start = 1): void { _nid = start; }
 
 // ═══ Rarity Roll ═══
 function rollRarity(luck: number): Rarity {
@@ -1306,11 +1308,10 @@ const LU_POOL: readonly LevelUpPoolEntry[] = Object.freeze([
   Object.freeze({ stat: 'critChance', emoji: '🎯', name: 'Crit Chance', amounts: Object.freeze([3, 5, 8, 12]), fmt: '+{n}% Crit' }),
 ]);
 
-// Fisher-Yates shuffle (non-mutating on source)
 function shuffle<T>(arr: readonly T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
-    const j = Math.floor(Math.random() * (i + 1));
+    const j = rngInt(0, i);
     [a[i], a[j]] = [a[j], a[i]];
   }
   return a;
@@ -1373,7 +1374,7 @@ export function generateShopItems(state: GameState): void {
   state.shopSlots = [];
   const waveInf = 1 + state.wave.number * PRICE_INFLATION;
   for (let i = 0; i < 4; i++) {
-    const isWeapon = Math.random() < 0.4;
+    const isWeapon = rng(0, 1) < 0.4;
     const rarity = rollRarity(state.player.luck);
     const baseP = BASE_PRICES[rarity] ?? 10;
     const price = Math.round(baseP * waveInf);

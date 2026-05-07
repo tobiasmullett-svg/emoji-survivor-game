@@ -12,7 +12,14 @@ export const norm = (v: Vec2): Vec2 => {
 export const dist = (a: Vec2, b: Vec2): number => len(sub(a, b));
 export const clamp = (val: number, lo: number, hi: number): number => Math.max(lo, Math.min(hi, val));
 export const lerp = (a: number, b: number, t: number): number => a + (b - a) * t;
-export const rng = (lo: number, hi: number): number => Math.random() * (hi - lo) + lo;
+let _rngFn: () => number = Math.random;
+
+/** Replace the underlying uniform [0,1) source (e.g. for deterministic tests). */
+export function setRng(fn: () => number): void { _rngFn = fn; }
+/** Restore the default Math.random source. */
+export function resetRng(): void { _rngFn = Math.random; }
+
+export const rng = (lo: number, hi: number): number => _rngFn() * (hi - lo) + lo;
 export const rngInt = (lo: number, hi: number): number => Math.floor(rng(lo, hi + 1));
 export const angle2v = (a: number): Vec2 => ({ x: Math.cos(a), y: Math.sin(a) });
 export const v2angle = (v: Vec2): number => Math.atan2(v.y, v.x);
