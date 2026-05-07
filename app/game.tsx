@@ -14,6 +14,8 @@ import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS } from '../engine/data';
 import { playSound, resumeAudio } from '../services/audio';
 import { addRunToProgression, getProgression } from '../engine/progression';
 import { checkAchievements, type Achievement } from '../engine/achievements';
+import { calculateRunScore } from '../engine/scoring';
+import { getDefaultSkinId, getSkinById, getSkinEmoji } from '../engine/skins';
 import GameCanvas from '../components/game/GameCanvas';
 import VirtualJoystick from '../components/game/VirtualJoystick';
 import HUD from '../components/game/HUD';
@@ -44,10 +46,23 @@ function resolvePlayableCharacterId(requestedId: string | undefined, unlockedCha
   return DEFAULT_CHARACTER;
 }
 
+function resolvePlayableSkinId(requestedSkinId: string | undefined, characterId: CharacterId, unlockedSkins: Record<string, string[]>, selectedSkins: Record<string, string>): string {
+  const requestedSkin = getSkinById(requestedSkinId);
+  if (requestedSkin?.characterId === characterId && (unlockedSkins[characterId] ?? []).includes(requestedSkin.id)) {
+    return requestedSkin.id;
+  }
+  const selectedSkinId = selectedSkins[characterId];
+  const selectedSkin = getSkinById(selectedSkinId);
+  if (selectedSkin?.characterId === characterId && (unlockedSkins[characterId] ?? []).includes(selectedSkin.id)) {
+    return selectedSkin.id;
+  }
+  return getDefaultSkinId(characterId);
+}
+
 export default function GameScreen() {
   useKeepAwake();
   const router = useRouter();
-  const { characterId } = useLocalSearchParams<{ characterId?: string | string[] }>();
+  const { characterId, skinId } = useLocalSearchParams<{ characterId?: string | string[]; skinId?: string | string[] }>();
   const gameRef = useRef<GameState | null>(null);
   const inputRef = useRef<Vec2>({ x: 0, y: 0 });
   const keysRef = useRef<Set<string>>(new Set());
@@ -71,6 +86,7 @@ export default function GameScreen() {
     let cancelled = false;
     const { width, height } = Dimensions.get('window');
     const requestedCharacter = getRouteCharacterId(characterId);
+    const requestedSkin = getRouteCharacterId(skinId);
     gameRef.current = null;
     phaseRef.current = 'waveAnnounce';
     setPhase('waveAnnounce');
@@ -82,7 +98,9 @@ export default function GameScreen() {
     getProgression().then(prog => {
       if (cancelled) return;
       const selectedCharacter = resolvePlayableCharacterId(requestedCharacter, prog.unlockedCharacters);
+      const selectedSkin = resolvePlayableSkinId(requestedSkin, selectedCharacter, prog.unlockedSkins, prog.selectedSkins);
       gameRef.current = initGameState(selectedCharacter, width, height, prog.startingBonuses);
+      gameRef.current.player.emoji = getSkinEmoji(selectedCharacter, selectedSkin);
       setHudData(extractHudData(gameRef.current));
     }).catch(() => {
       if (cancelled) return;
@@ -132,7 +150,7 @@ export default function GameScreen() {
       cancelled = true;
       cancelAnimationFrame(animationFrameId);
     };
-  }, [characterId]);
+  }, [characterId, skinId]);
 
   useEffect(() => {
     const sub = Dimensions.addEventListener('change', ({ window }) => {
@@ -154,10 +172,11 @@ export default function GameScreen() {
         const elapsed = Math.round((Date.now() - (state.stats?.startTime ?? Date.now())) / 1000);
         const wave = state.wave?.number ?? 0;
         const kills = state.stats?.enemiesKilled ?? 0;
+        const score = calculateRunScore({ wave, kills, time: elapsed });
         
         saveHighScore({
-          emoji: cDef?.emoji ?? '?', name: cDef?.name ?? 'Unknown',
-          wave, kills,
+          emoji: state.player?.emoji ?? cDef?.emoji ?? '?', name: cDef?.name ?? 'Unknown',
+          wave, kills, score,
           date: new Date().toLocaleDateString(), time: elapsed,
         }).catch(() => {});
         
@@ -221,6 +240,7 @@ export default function GameScreen() {
   const handleRestart = useCallback(() => {
     const { width, height } = Dimensions.get('window');
     const requestedCharacter = getRouteCharacterId(characterId);
+    const requestedSkin = getRouteCharacterId(skinId);
     gameRef.current = null;
     phaseRef.current = 'waveAnnounce';
     setPhase('waveAnnounce');
@@ -231,14 +251,16 @@ export default function GameScreen() {
     setRunAchievements([]);
     getProgression().then(prog => {
       const selectedCharacter = resolvePlayableCharacterId(requestedCharacter, prog.unlockedCharacters);
+      const selectedSkin = resolvePlayableSkinId(requestedSkin, selectedCharacter, prog.unlockedSkins, prog.selectedSkins);
       gameRef.current = initGameState(selectedCharacter, width, height, prog.startingBonuses);
+      gameRef.current.player.emoji = getSkinEmoji(selectedCharacter, selectedSkin);
       setHudData(extractHudData(gameRef.current));
     }).catch(() => {
       const selectedCharacter = resolvePlayableCharacterId(requestedCharacter, [DEFAULT_CHARACTER]);
       gameRef.current = initGameState(selectedCharacter, width, height);
       setHudData(extractHudData(gameRef.current));
     });
-  }, [characterId]);
+  }, [characterId, skinId]);
 
   const handleAbility = useCallback(() => {
     const state = gameRef.current;

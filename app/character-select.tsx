@@ -5,7 +5,8 @@ import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { CHARACTERS } from '../engine/data';
 import type { CharacterDef } from '../engine/types';
-import { getProgression, type ProgressionData } from '../engine/progression';
+import { getProgression, refreshProgressionUnlocks, selectSkin, type ProgressionData } from '../engine/progression';
+import { CHARACTER_SKINS, getDefaultSkinId, getSkinEmoji, getSkinUnlockLabel } from '../engine/skins';
 
 const STAT_BARS: { key: string; label: string; max: number }[] = [
   { key: 'hp', label: 'HP', max: 200 },
@@ -23,7 +24,9 @@ export default function CharacterSelectScreen() {
   const { width } = useWindowDimensions();
 
   useEffect(() => {
-    getProgression().then(setProgression).catch(() => {});
+    refreshProgressionUnlocks().then(setProgression).catch(() => {
+      getProgression().then(setProgression).catch(() => {});
+    });
   }, []);
   const isWide = width >= 760;
   const cardWidth = isWide ? Math.min(230, (width - 96) / 3) : Math.min(280, width - 56);
@@ -32,10 +35,20 @@ export default function CharacterSelectScreen() {
   );
   const selectedCharacter = CHARACTERS[selected];
   const canStart = isCharacterUnlocked(selectedCharacter);
+  const selectedSkinId = selectedCharacter ? (progression?.selectedSkins[selectedCharacter.id] ?? getDefaultSkinId(selectedCharacter.id)) : undefined;
 
   const handleStart = () => {
     if (selectedCharacter && canStart) {
-      router.push({ pathname: '/game', params: { characterId: selectedCharacter.id } });
+      router.push({ pathname: '/game', params: { characterId: selectedCharacter.id, skinId: selectedSkinId } });
+    }
+  };
+
+  const handleSkinSelect = async (skinId: string) => {
+    if (!selectedCharacter) return;
+    const success = await selectSkin(selectedCharacter.id, skinId);
+    if (success) {
+      const updated = await getProgression();
+      setProgression(updated);
     }
   };
 
@@ -66,7 +79,7 @@ export default function CharacterSelectScreen() {
                   <Text style={s.lockText}>Reach Wave {c.id === 'octopus' ? '5' : '10'}</Text>
                 </View>
               )}
-              <Text style={[s.emoji, !unlocked && { opacity: 0.4 }]}>{c.emoji}</Text>
+              <Text style={[s.emoji, !unlocked && { opacity: 0.4 }]}>{getSkinEmoji(c.id, progression?.selectedSkins[c.id])}</Text>
               <Text style={[s.name, !unlocked && { opacity: 0.4 }]}>{c.name}</Text>
               <Text style={[s.desc, !unlocked && { opacity: 0.4 }]}>{c.desc}</Text>
               {/* Stats */}
@@ -95,6 +108,33 @@ export default function CharacterSelectScreen() {
             );
           })}
         </ScrollView>
+        {selectedCharacter && canStart && (
+          <View style={s.skinPanel}>
+            <Text style={s.skinTitle}>SKINS</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={s.skinList}>
+              {(CHARACTER_SKINS[selectedCharacter.id] ?? []).map(skin => {
+                const unlocked = (progression?.unlockedSkins[selectedCharacter.id] ?? []).includes(skin.id);
+                const active = selectedSkinId === skin.id;
+                return (
+                  <Pressable
+                    key={skin.id}
+                    onPress={() => unlocked && handleSkinSelect(skin.id)}
+                    disabled={!unlocked}
+                    style={[s.skinChip, active && s.skinChipActive, !unlocked && s.skinChipLocked]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${skin.name} skin`}
+                  >
+                    <Text style={[s.skinEmoji, !unlocked && { opacity: 0.45 }]}>{skin.emoji}</Text>
+                    <View style={s.skinInfo}>
+                      <Text style={[s.skinName, !unlocked && { opacity: 0.45 }]}>{skin.name}</Text>
+                      <Text style={s.skinMeta}>{unlocked ? (active ? 'Equipped' : 'Unlocked') : getSkinUnlockLabel(skin)}</Text>
+                    </View>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
         <Pressable
           onPress={handleStart}
           disabled={!canStart}
@@ -135,6 +175,16 @@ const s = StyleSheet.create({
   abilityInfo: { flex: 1 },
   abilityName: { color: '#FBBF24', fontSize: 13, fontWeight: '700' },
   abilityDesc: { color: '#94A3B8', fontSize: 12, marginTop: 2 },
+  skinPanel: { backgroundColor: 'rgba(15,25,60,0.6)', borderRadius: 14, borderWidth: 1, borderColor: 'rgba(45,212,191,0.14)', padding: 12, marginTop: 12 },
+  skinTitle: { color: '#FBBF24', fontSize: 12, fontWeight: '900', letterSpacing: 1, marginBottom: 8 },
+  skinList: { gap: 8, paddingRight: 4 },
+  skinChip: { minWidth: 156, flexDirection: 'row', alignItems: 'center', borderRadius: 12, borderWidth: 1, borderColor: 'rgba(148,163,184,0.16)', backgroundColor: 'rgba(255,255,255,0.045)', padding: 10 },
+  skinChipActive: { borderColor: '#2DD4BF', backgroundColor: 'rgba(45,212,191,0.12)' },
+  skinChipLocked: { backgroundColor: 'rgba(15,23,42,0.45)' },
+  skinEmoji: { fontSize: 28, marginRight: 10 },
+  skinInfo: { flex: 1 },
+  skinName: { color: '#FFF', fontSize: 13, fontWeight: '800' },
+  skinMeta: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
   startBtn: { borderRadius: 14, overflow: 'hidden', marginTop: 16, marginBottom: 8 },
   startBtnDisabled: { opacity: 0.45 },
   startGrad: { paddingVertical: 18, alignItems: 'center', borderRadius: 14 },

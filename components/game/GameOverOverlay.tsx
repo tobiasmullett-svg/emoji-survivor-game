@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import type { RunStats } from '../../engine/types';
+import { calculateRunScore } from '../../engine/scoring';
 
 interface Props {
   stats: RunStats | null;
@@ -17,6 +18,7 @@ interface Props {
 export default function GameOverOverlay({ stats, waveNum, materials, playerEmoji, victory, weapons, achievements = [], onRetry, onMenu }: Props) {
   const endedAtRef = React.useRef(Date.now());
   const elapsed = stats ? Math.round((endedAtRef.current - (stats.startTime ?? endedAtRef.current)) / 1000) : 0;
+  const score = calculateRunScore({ wave: waveNum, kills: stats?.enemiesKilled ?? 0, time: elapsed });
   const mm = String(Math.floor(elapsed / 60)).padStart(2, '0');
   const ss = String(elapsed % 60).padStart(2, '0');
   return (
@@ -33,6 +35,7 @@ export default function GameOverOverlay({ stats, waveNum, materials, playerEmoji
           </View>
         )}
         <View style={s.stats}>
+          <Row label="Score" value={String(score)} />
           <Row label="Waves Survived" value={String(waveNum ?? 0)} />
           <Row label="Enemies Killed" value={String(stats?.enemiesKilled ?? 0)} />
           <Row label="Damage Dealt" value={String(stats?.damageDealt ?? 0)} />

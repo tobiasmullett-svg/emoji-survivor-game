@@ -269,5 +269,6 @@ export interface HudData {
 export interface HighScore {
   emoji: string; name: string;
   wave: number; kills: number;
+  score: number;
   date: string; time: number;
 }
