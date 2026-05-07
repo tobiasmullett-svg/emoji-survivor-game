@@ -9,9 +9,10 @@ export default function AchievementsScreen() {
   const router = useRouter();
   const scrollRef = useRef<ScrollView>(null);
   const [progress, setProgress] = useState<Record<string, AchievementProgress>>({});
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
-    getAchievementProgress().then(setProgress).catch(() => {});
+    getAchievementProgress().then(setProgress).catch(() => {}).finally(() => setLoaded(true));
     const scrollTimer = setTimeout(() => {
       scrollRef.current?.scrollTo({ y: 0, animated: false });
     }, 0);
@@ -32,12 +33,16 @@ export default function AchievementsScreen() {
         </View>
 
         <View style={s.summaryCard}>
-          <Text style={s.summaryValue}>{unlockedCount}/{ACHIEVEMENTS.length}</Text>
+          <Text style={s.summaryValue}>{loaded ? `${unlockedCount}/${ACHIEVEMENTS.length}` : `--/${ACHIEVEMENTS.length}`}</Text>
           <Text style={s.summaryLabel}>Unlocked</Text>
         </View>
 
         <ScrollView ref={scrollRef} contentContainerStyle={s.list}>
-          {ACHIEVEMENTS.map(achievement => {
+          {!loaded ? (
+            <View style={s.loadingCard}>
+              <Text style={s.loadingText}>Loading achievement log...</Text>
+            </View>
+          ) : ACHIEVEMENTS.map(achievement => {
             const itemProgress = progress[achievement.id];
             const unlocked = Boolean(itemProgress?.unlocked);
             return (
@@ -75,6 +80,8 @@ const s = StyleSheet.create({
   summaryValue: { color: '#FBBF24', fontSize: 28, fontWeight: '900' },
   summaryLabel: { color: '#94A3B8', fontSize: 12, marginTop: 2, textTransform: 'uppercase', letterSpacing: 1 },
   list: { paddingBottom: 40 },
+  loadingCard: { backgroundColor: 'rgba(15,25,60,0.68)', borderRadius: 14, padding: 18, borderWidth: 1, borderColor: 'rgba(100,150,255,0.12)' },
+  loadingText: { color: '#CBD5E1', fontSize: 14, fontWeight: '700', textAlign: 'center' },
   card: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(15,25,60,0.68)', borderRadius: 14, padding: 14, marginBottom: 10, borderWidth: 1, borderColor: 'rgba(100,150,255,0.12)' },
   cardLocked: { backgroundColor: 'rgba(15,25,60,0.38)' },
   emoji: { fontSize: 34, width: 46, textAlign: 'center', marginRight: 12 },

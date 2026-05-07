@@ -12,11 +12,12 @@ export default function ProgressionScreen() {
   const scrollRef = useRef<ScrollView>(null);
   const [prog, setProg] = useState<ProgressionData | null>(null);
   const [unlockedCount, setUnlockedCount] = useState(0);
+  const [loaded, setLoaded] = useState(false);
 
   useEffect(() => {
     refreshProgressionUnlocks().then(setProg).catch(() => {
       getProgression().then(setProg).catch(() => {});
-    });
+    }).finally(() => setLoaded(true));
     getUnlockedAchievements().then(a => setUnlockedCount(a.length)).catch(() => {});
     const scrollTimer = setTimeout(() => {
       scrollRef.current?.scrollTo({ y: 0, animated: false });
@@ -59,6 +60,12 @@ export default function ProgressionScreen() {
         </View>
 
         <ScrollView ref={scrollRef} contentContainerStyle={s.content}>
+          {!loaded ? (
+            <View style={s.loadingCard}>
+              <Text style={s.loadingText}>Loading progression...</Text>
+            </View>
+          ) : (
+          <>
           {/* Stats */}
           <View style={s.statsCard}>
             <Text style={s.pearlText}>🐚 {prog?.pearls ?? 0} Pearls</Text>
@@ -129,6 +136,8 @@ export default function ProgressionScreen() {
               </View>
             );
           })}
+          </>
+          )}
         </ScrollView>
       </SafeAreaView>
     </LinearGradient>
@@ -151,6 +160,8 @@ const s = StyleSheet.create({
   backText: { color: '#FFF', fontSize: 24 },
   title: { flex: 1, color: '#FFF', fontSize: 22, fontWeight: '800', textAlign: 'center' },
   content: { paddingBottom: 40 },
+  loadingCard: { backgroundColor: 'rgba(15,25,60,0.68)', borderRadius: 14, padding: 18, borderWidth: 1, borderColor: 'rgba(100,150,255,0.12)' },
+  loadingText: { color: '#CBD5E1', fontSize: 14, fontWeight: '700', textAlign: 'center' },
   statsCard: { backgroundColor: 'rgba(15,25,60,0.7)', borderRadius: 14, padding: 16, marginBottom: 20, borderWidth: 1, borderColor: 'rgba(100,150,255,0.12)' },
   pearlText: { color: '#F59E0B', fontSize: 20, fontWeight: '800', textAlign: 'center', marginBottom: 12 },
   statRow: { flexDirection: 'row', justifyContent: 'space-around', marginBottom: 8 },
