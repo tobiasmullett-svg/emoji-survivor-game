@@ -1101,12 +1101,27 @@ function endWave(state: GameState): void {
   state.wave.collectTimer = COLLECT_TIME;
 }
 
+// Weighted: vampiric and shielded are noticeably nastier than the rest,
+// so they're rarer. Fast and explosive stay common for variety.
+const ELITE_WEIGHTS: ReadonlyArray<readonly [string, number]> = [
+  ['fast', 30],
+  ['explosive', 25],
+  ['tanky', 20],
+  ['vampiric', 15],
+  ['shielded', 10],
+];
+const ELITE_TOTAL_WEIGHT = ELITE_WEIGHTS.reduce((s, [, w]) => s + w, 0);
+
 function rollElite(state: GameState): string {
   if (state.wave.number < 3) return 'none';
   const chance = ELITE_CHANCE_BASE + (state.wave.number - 3) * ELITE_CHANCE_WAVE;
   if (rng(0, 1) > Math.min(chance, 0.35)) return 'none';
-  const elites = ['fast', 'tanky', 'explosive', 'vampiric', 'shielded'];
-  return elites[rngInt(0, elites.length - 1)];
+  let roll = rng(0, ELITE_TOTAL_WEIGHT);
+  for (const [kind, weight] of ELITE_WEIGHTS) {
+    roll -= weight;
+    if (roll <= 0) return kind;
+  }
+  return 'fast';
 }
 
 function applyEliteStats(enemy: Enemy, elite: string): void {
@@ -1338,17 +1353,27 @@ export function generateLevelUpChoices(state: GameState): void {
   });
 }
 
+// Soft caps prevent late-game stat stacking from trivializing runs.
+// Values picked to leave headroom while still ending the power curve.
+const STAT_CAPS = {
+  speedMult: 2.5,
+  damageMult: 5.0,
+  attackSpeedMult: 3.0,
+  dodge: 60,
+  critChance: 100,
+} as const;
+
 function applyStatChange(p: PlayerState, stat: string, amount: number): void {
   switch (stat) {
     case 'maxHp': p.maxHp += amount; p.hp += amount; break;
-    case 'speed': p.speedMult += amount / 100; break;
-    case 'damage': p.damageMult += amount / 100; break;
+    case 'speed': p.speedMult = Math.min(STAT_CAPS.speedMult, p.speedMult + amount / 100); break;
+    case 'damage': p.damageMult = Math.min(STAT_CAPS.damageMult, p.damageMult + amount / 100); break;
     case 'armor': p.armor += amount; break;
-    case 'dodge': p.dodge += amount; break;
+    case 'dodge': p.dodge = Math.min(STAT_CAPS.dodge, p.dodge + amount); break;
     case 'luck': p.luck += amount; break;
     case 'harvesting': p.harvesting += amount; break;
-    case 'attackSpeed': p.attackSpeedMult += amount / 100; break;
-    case 'critChance': p.critChance = Math.min(100, p.critChance + amount); break;
+    case 'attackSpeed': p.attackSpeedMult = Math.min(STAT_CAPS.attackSpeedMult, p.attackSpeedMult + amount / 100); break;
+    case 'critChance': p.critChance = Math.min(STAT_CAPS.critChance, p.critChance + amount); break;
     case 'pickupRange': p.pickupRange += amount; break;
     case 'heal': p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * amount / 100)); break;
   }
