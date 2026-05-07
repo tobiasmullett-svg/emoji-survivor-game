@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { GameState } from '../../engine/types';
+import { ELITE_EMOJIS, ELITE_COLORS } from '../../engine/data';
 
 const GRID_STEP = 160;
 const GRID_LINES = Array.from({ length: Math.floor(2000 / GRID_STEP) + 1 }, (_, i) => i * GRID_STEP);
@@ -204,16 +205,18 @@ export default function GameCanvas({ gameState, frame }: Props) {
               {prop.emoji}
             </Text>
           ))}
-          {visibleBubbles.map(bubble => {
-            const y = ((bubble.y - frame * bubble.speed) % 1960 + 1960) % 1960 + 20;
+          {BUBBLES.map(bubble => {
+            const bx = bubble.x + Math.sin((frame + bubble.id * 7) * 0.035) * 7;
+            const by = ((bubble.y - frame * bubble.speed) % 1960 + 1960) % 1960 + 20;
+            if (!vis(bx, by)) return null;
             return (
               <View
                 key={`bubble-${bubble.id}`}
                 style={[
                   s.bubble,
                   {
-                    left: bubble.x + Math.sin((frame + bubble.id * 7) * 0.035) * 7,
-                    top: y,
+                    left: bx,
+                    top: by,
                     width: bubble.size,
                     height: bubble.size,
                     borderRadius: bubble.size,
@@ -748,6 +751,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
       </View>
+      <OffScreenMarkers state={state} />
       {(p.hp / p.maxHp) < 0.32 && <DangerVignette frame={frame} />}
       {showCritFlash && <CritFlash frame={frame} />}
       {state.waveModifier === 'denseFog' && (
@@ -756,6 +760,64 @@ export default function GameCanvas({ gameState, frame }: Props) {
         </View>
       )}
     </View>
+  );
+}
+
+function OffScreenMarkers({ state }: { state: GameState }) {
+  const { camera, sw, sh, enemies, resourceNodes, pickups } = state;
+  const halfW = sw / 2 - 28;
+  const halfH = sh / 2 - 28;
+  const cx = camera.x;
+  const cy = camera.y;
+  const isOnScreen = (x: number, y: number) =>
+    Math.abs(x - cx) < halfW && Math.abs(y - cy) < halfH;
+
+  type Marker = { x: number; y: number; emoji: string; color: string; priority: number };
+  const candidates: Marker[] = [];
+  for (const e of enemies) {
+    if (!e.alive || isOnScreen(e.x, e.y)) continue;
+    if (e.isBoss) {
+      candidates.push({ x: e.x, y: e.y, emoji: '👑', color: '#F59E0B', priority: 0 });
+    } else if (e.elite !== 'none') {
+      candidates.push({ x: e.x, y: e.y, emoji: ELITE_EMOJIS[e.elite] ?? '⭐', color: ELITE_COLORS[e.elite] ?? '#EF4444', priority: 1 });
+    }
+  }
+  for (const node of resourceNodes) {
+    if (!node.alive || node.kind !== 'crystal' || isOnScreen(node.x, node.y)) continue;
+    candidates.push({ x: node.x, y: node.y, emoji: '💠', color: '#2DD4BF', priority: 2 });
+  }
+  for (const pk of pickups) {
+    if (pk.type !== 'egg' || isOnScreen(pk.x, pk.y)) continue;
+    candidates.push({ x: pk.x, y: pk.y, emoji: '🥚', color: '#FBBF24', priority: 3 });
+  }
+  if (candidates.length === 0) return null;
+  // Stable priority sort, cap to 6 markers to avoid edge clutter.
+  candidates.sort((a, b) => a.priority - b.priority);
+  const markers = candidates.slice(0, 6);
+
+  return (
+    <>
+      {markers.map((m, i) => {
+        const dx = m.x - cx;
+        const dy = m.y - cy;
+        const angle = Math.atan2(dy, dx);
+        const cosA = Math.cos(angle);
+        const sinA = Math.sin(angle);
+        // Project the angle ray onto the screen-space bounded rect.
+        const t = Math.min(
+          Math.abs(cosA) > 0.001 ? halfW / Math.abs(cosA) : Infinity,
+          Math.abs(sinA) > 0.001 ? halfH / Math.abs(sinA) : Infinity,
+        );
+        const sx = sw / 2 + cosA * t;
+        const sy = sh / 2 + sinA * t;
+        return (
+          <View key={`marker-${i}`} style={[s.marker, { left: sx - 16, top: sy - 16, borderColor: m.color }]}>
+            <Text style={[s.markerText, { transform: [{ rotate: `${angle}rad` }] }]}>{'\u25B6'}</Text>
+            <Text style={s.markerEmoji}>{m.emoji}</Text>
+          </View>
+        );
+      })}
+    </>
   );
 }
 
@@ -835,4 +897,7 @@ const s = StyleSheet.create({
   fogOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 5, pointerEvents: 'none' },
   fogVignette: { ...StyleSheet.absoluteFillObject, backgroundColor: 'rgba(100,120,140,0.15)' },
   dmgNum: { position: 'absolute', fontWeight: '800', textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 1, height: 1 }, textShadowRadius: 2 },
+  marker: { position: 'absolute', width: 32, height: 32, borderRadius: 16, borderWidth: 2, backgroundColor: 'rgba(15,23,42,0.78)', alignItems: 'center', justifyContent: 'center', zIndex: 8 },
+  markerEmoji: { position: 'absolute', fontSize: 16, textAlign: 'center' },
+  markerText: { position: 'absolute', fontSize: 10, color: '#FFF', fontWeight: '900', top: -8, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
 });
