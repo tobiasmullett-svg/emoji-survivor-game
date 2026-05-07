@@ -6,6 +6,7 @@ import type {
 } from './types';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ENEMY_DEFS, ITEM_DEFS, WEAPON_IDS, ELITE_COLORS, ELITE_EMOJIS, MODIFIER_NAMES } from './data';
 import { playSound } from '../services/audio';
+import { haptic } from '../services/haptics';
 import {
   ARENA_W, ARENA_H, WAVE_BASE_TIME, WAVE_TIME_INC, MAX_WAVES,
   MAX_ENEMIES, MAX_PROJECTILES, MAX_PICKUPS, MAX_DMG_NUMS, MAX_EFFECTS,
@@ -723,11 +724,13 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   // Hit stop on kill
   state.hitStop = Math.max(state.hitStop, KILL_HIT_STOP);
   
-  // Sound effect
+  // Sound and haptics
   if (enemy.isBoss) {
     playSound('explosion');
+    haptic('heavy');
   } else if (enemy.elite !== 'none') {
     playSound('kill');
+    haptic('light');
   }
   
   // Death particles
@@ -904,6 +907,7 @@ function checkEnemyPlayerHits(state: GameState): void {
         addDmgNum(state, p.x, p.y - 20, String(dmg), '#EF4444');
         state.shake = { x: 0, y: 0, timer: 0.25, intensity: 7 };
         state.hitStop = Math.max(state.hitStop, HIT_STOP_DURATION);
+        haptic('medium');
       } else {
         addDmgNum(state, p.x, p.y - 20, 'DODGE', '#06B6D4');
         p.invulnTimer = 0.2;
@@ -1280,6 +1284,7 @@ function checkLevelUp(state: GameState): void {
     p.level++;
     p.xpToNext = XP_BASE + (p.level - 1) * XP_INC;
     playSound('levelup');
+    haptic('success');
     generateLevelUpChoices(state);
     state.prevPhase = state.phase;
     state.phase = 'levelup';
@@ -1365,6 +1370,7 @@ function checkDeath(state: GameState): void {
   if (state.player.hp <= 0) {
     state.player.hp = 0;
     state.phase = 'gameover';
+    haptic('warning');
   }
 }
 
@@ -1614,6 +1620,7 @@ export function activateAbility(state: GameState, input: Vec2): void {
   const p = state.player;
   if (p.abilityCooldown > 0 || state.phase !== 'playing') return;
   playSound('ability');
+  haptic('light');
   switch (p.characterId) {
     case 'crab':
       p.abilityActive = true;
