@@ -106,6 +106,8 @@ export const MODIFIER_START_WAVE = 3;
 
 export const WEAPON_EVOLVE_KILLS = 50;
 export const WEAPON_EVOLVE_COST = 25;
+export const WEAPON_MAX_LEVEL = 5;
+export const WEAPON_LEVEL_DAMAGE_BONUS = 0.18;
 
 export const MAX_HAZARDS = 18;
 export const HAZARD_BASE_DAMAGE = 7;

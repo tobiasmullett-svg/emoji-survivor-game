@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import type { GameState } from '../../engine/types';
-import { RARITY_COLORS, WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST } from '../../engine/constants';
+import { RARITY_COLORS, WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST, WEAPON_MAX_LEVEL } from '../../engine/constants';
 import { buyShopItem, rerollShop, healPlayer, buyEgg, trainPets, fusePets, evolveWeapon, getPetSynergies } from '../../engine/GameEngine';
 import { WEAPONS, EVOLVED_WEAPONS, ITEM_DEFS } from '../../engine/data';
 
@@ -68,26 +68,28 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
           {(shopSlots ?? []).map((slot, i) => {
             const rc = RARITY_COLORS[slot?.rarity ?? 'common'] ?? '#9CA3AF';
             const existingWeapon = slot?.kind === 'weapon' && slot.weaponId
-              ? player.weapons.find(w => w.id === slot.weaponId && !w.evolved)
+              ? player.weapons.find(w => w.id === slot.weaponId)
               : undefined;
-            const evolutionReady = Boolean(existingWeapon && existingWeapon.killCount >= WEAPON_EVOLVE_KILLS);
-            const weaponSlotBlocked = slot?.kind === 'weapon' && !evolutionReady && player.weapons.length >= 6;
-            const disabled = Boolean(slot?.bought || (materials ?? 0) < (slot?.price ?? 999) || weaponSlotBlocked);
+            const canUpgradeWeapon = Boolean(existingWeapon && (existingWeapon.level ?? 1) < WEAPON_MAX_LEVEL);
+            const evolutionReady = Boolean(existingWeapon && !existingWeapon.evolved && (existingWeapon.level ?? 1) >= WEAPON_MAX_LEVEL && existingWeapon.killCount >= WEAPON_EVOLVE_KILLS);
+            const duplicateBlocked = Boolean(existingWeapon && !canUpgradeWeapon && !evolutionReady);
+            const weaponSlotBlocked = slot?.kind === 'weapon' && !existingWeapon && player.weapons.length >= 6;
+            const disabled = Boolean(slot?.bought || (materials ?? 0) < (slot?.price ?? 999) || weaponSlotBlocked || duplicateBlocked);
             return (
               <Pressable
                 key={i}
                 onPress={() => { if (buyShopItem(state, i)) force(n => n + 1); }}
                 disabled={disabled}
-                style={[s.itemCard, { borderColor: evolutionReady ? '#F59E0B' : rc }, (slot?.bought || weaponSlotBlocked) && s.itemBought, evolutionReady && s.evolutionCard]}
+                style={[s.itemCard, { borderColor: evolutionReady ? '#F59E0B' : canUpgradeWeapon ? '#22C55E' : rc }, (slot?.bought || weaponSlotBlocked || duplicateBlocked) && s.itemBought, (evolutionReady || canUpgradeWeapon) && s.evolutionCard]}
                 accessibilityRole="button"
                 accessibilityLabel={slot?.name ?? ''}
               >
                 <Text style={s.itemEmoji}>{slot?.emoji ?? '?'}</Text>
                 <Text style={s.itemName}>{slot?.name ?? 'Unknown'}</Text>
-                <Text style={s.itemDesc}>{evolutionReady ? 'Evolve owned weapon' : weaponSlotBlocked ? 'Weapon slots full' : slot?.desc ?? ''}</Text>
-                <Text style={[s.itemRarity, { color: evolutionReady ? '#F59E0B' : rc }]}>{evolutionReady ? 'EVOLUTION' : (slot?.rarity ?? 'common').toUpperCase()}</Text>
+                <Text style={s.itemDesc}>{evolutionReady ? 'Evolve owned weapon' : canUpgradeWeapon ? `Upgrade to Lv ${(existingWeapon?.level ?? 1) + 1}` : duplicateBlocked ? 'Max level' : weaponSlotBlocked ? 'Weapon slots full' : slot?.desc ?? ''}</Text>
+                <Text style={[s.itemRarity, { color: evolutionReady ? '#F59E0B' : canUpgradeWeapon ? '#22C55E' : rc }]}>{evolutionReady ? 'EVOLUTION' : canUpgradeWeapon ? `LEVEL ${(existingWeapon?.level ?? 1) + 1}` : (slot?.rarity ?? 'common').toUpperCase()}</Text>
                 {!slot?.bought && (
-                  <Text style={[s.price, ((materials ?? 0) < (slot?.price ?? 0) || weaponSlotBlocked) && { color: '#EF4444' }]}>
+                  <Text style={[s.price, ((materials ?? 0) < (slot?.price ?? 0) || weaponSlotBlocked || duplicateBlocked) && { color: '#EF4444' }]}>
                     🔩{slot?.price ?? 0}
                   </Text>
                 )}
@@ -232,6 +234,7 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
             return (
               <View key={i} style={[s.invSlot, w?.evolved && s.invSlotEvolved, ready && s.invSlotReady]}>
                 <Text style={s.invEmoji}>{getWeaponEmoji(w?.id, w?.evolved)}</Text>
+                <Text style={s.weaponLevel}>Lv {w.level ?? 1}</Text>
                 {!w.evolved && <Text style={s.killText}>{Math.min(w.killCount, WEAPON_EVOLVE_KILLS)}/{WEAPON_EVOLVE_KILLS}</Text>}
                 {!w.evolved && <View style={[s.invProgress, { width: `${progress}%` }]} />}
               </View>
@@ -318,6 +321,7 @@ const s = StyleSheet.create({
   invProgress: { position: 'absolute', bottom: 0, left: 0, height: 3, backgroundColor: '#F59E0B' },
   invEmoji: { fontSize: 18, zIndex: 2 },
   killText: { position: 'absolute', bottom: 4, color: '#FFF', fontSize: 7, fontWeight: '800', zIndex: 2, textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  weaponLevel: { position: 'absolute', top: 2, right: 3, color: '#A7F3D0', fontSize: 7, fontWeight: '900', zIndex: 3, textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
   itemInvRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },
   itemInvSlot: { width: 32, height: 32, borderRadius: 6, backgroundColor: 'rgba(255,255,255,0.05)', borderWidth: 1, alignItems: 'center', justifyContent: 'center' },
   itemInvEmoji: { fontSize: 18 },

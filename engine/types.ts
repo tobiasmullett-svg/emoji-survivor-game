@@ -33,6 +33,7 @@ export interface WeaponState {
   id: WeaponId;
   cooldownTimer: number;
   rarityMult: number;
+  level: number;
   evolved: boolean;
   killCount: number;
 }
@@ -276,7 +277,7 @@ export interface HudData {
   comboCount: number; comboTimer: number; bestCombo: number;
   petCount: number; resourceCount: number;
   phase: GamePhase;
-  equippedWeapons: { emoji: string; evolved: boolean; killCount: number; evolveKills: number }[];
+  equippedWeapons: { emoji: string; evolved: boolean; killCount: number; evolveKills: number; level: number; maxLevel: number }[];
   waveModifier?: WaveModifier;
   modifierAnnounceTimer?: number;
   petSynergies?: { kind: PetKind; count: number; bonusPct: number }[];

@@ -23,6 +23,7 @@ import {
   HIT_STOP_DURATION, CRIT_HIT_STOP, KILL_HIT_STOP,
   WAVE_MODIFIERS, MODIFIER_START_WAVE,
   WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST,
+  WEAPON_MAX_LEVEL, WEAPON_LEVEL_DAMAGE_BONUS,
   MAX_HAZARDS, HAZARD_BASE_DAMAGE, HAZARD_RADIUS,
   WATER_ZONES, PLAYER_MAX_OXYGEN, OXYGEN_DRAIN_PER_SEC, OXYGEN_REGEN_PER_SEC, OXYGEN_DAMAGE_TICK, OXYGEN_DAMAGE_INTERVAL,
 } from './constants';
@@ -148,7 +149,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
       harvesting: cDef.harvesting, attackSpeedMult: cDef.attackSpeedMult,
       critChance: cDef.critChance, pickupRange: PICKUP_BASE_RANGE,
       characterId: charId, emoji: cDef.emoji,
-      weapons: [{ id: cDef.startWeapon, cooldownTimer: 0, rarityMult: 1, evolved: false, killCount: 0 }],
+      weapons: [{ id: cDef.startWeapon, cooldownTimer: 0, rarityMult: 1, level: 1, evolved: false, killCount: 0 }],
       items: [], xp: 0, level: 1, xpToNext: XP_BASE,
       abilityCooldown: 0, abilityMaxCooldown: cDef.abilityCooldown,
       abilityActive: false, abilityTimer: 0, invulnTimer: 0, radius: 20,
@@ -581,6 +582,19 @@ function fireWeapons(state: GameState, dt: number): void {
   }
 }
 
+function weaponPowerMult(ws: WeaponState): number {
+  const level = Math.max(1, ws.level ?? 1);
+  return ws.rarityMult * (1 + (level - 1) * WEAPON_LEVEL_DAMAGE_BONUS);
+}
+
+function upgradeWeapon(state: GameState, weapon: WeaponState, rarity: Rarity): void {
+  weapon.level = Math.min(WEAPON_MAX_LEVEL, (weapon.level ?? 1) + 1);
+  weapon.rarityMult = Math.max(weapon.rarityMult, RARITY_WPN_MULT[rarity] ?? 1);
+  playSound('shopBuy');
+  addDmgNum(state, state.player.x, state.player.y - 50, `Lv ${weapon.level}!`, '#22C55E');
+  addEffect(state, state.player.x, state.player.y, 'burst', '#22C55E', 0, 54);
+}
+
 function findNearest(pos: Vec2, enemies: Enemy[], range: number): Enemy | null {
   let best: Enemy | null = null;
   let bestD = range + 1;
@@ -617,7 +631,7 @@ function fireMelee(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSta
     const d = dist(p, e);
     if (d <= wDef.range + e.radius) {
       const strikeMult = ws.evolved ? Math.max(1, wDef.projCount) : 1;
-      const dmg = wDef.damage * p.damageMult * ws.rarityMult * strikeMult;
+      const dmg = wDef.damage * p.damageMult * weaponPowerMult(ws) * strikeMult;
       const isCrit = rng(0, 100) < p.critChance;
       dealDamage(state, e, isCrit ? dmg * 2 : dmg, isCrit, ws);
     }
@@ -625,7 +639,7 @@ function fireMelee(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSta
   for (const node of state.resourceNodes) {
     if (!node.alive) continue;
     if (dist(p, node) <= wDef.range + node.radius) {
-      dealNodeDamage(state, node, wDef.damage * p.damageMult * ws.rarityMult);
+      dealNodeDamage(state, node, wDef.damage * p.damageMult * weaponPowerMult(ws));
     }
   }
 }
@@ -649,7 +663,7 @@ function fireRanged(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSt
     state.projectiles.push({
       id: nid(), x: p.x, y: p.y,
       vx: dir.x * wDef.projSpeed, vy: dir.y * wDef.projSpeed,
-      damage: wDef.damage * p.damageMult * ws.rarityMult,
+      damage: wDef.damage * p.damageMult * weaponPowerMult(ws),
       emoji: wDef.projEmoji, radius: 5, piercing: wDef.piercing,
       hitIds: [], life: wDef.range / wDef.projSpeed, maxLife: wDef.range / wDef.projSpeed,
       isEnemy: false, sourceWeaponIndex: weaponIndex,
@@ -684,7 +698,7 @@ function fireSpecial(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponS
     else break;
   }
   for (const t of targets) {
-    const dmg = wDef.damage * p.damageMult * ws.rarityMult;
+    const dmg = wDef.damage * p.damageMult * weaponPowerMult(ws);
     const isCrit = rng(0, 100) < p.critChance;
     dealDamage(state, t, isCrit ? dmg * 2 : dmg, isCrit, ws);
     addEffect(state, t.x, t.y, 'zap', '#A78BFA', 0, 36);
@@ -1528,17 +1542,25 @@ export function buyShopItem(state: GameState, index: number): boolean {
   const slot = state.shopSlots?.[index];
   if (!slot || slot.bought || state.materials < slot.price) return false;
 
-  // Check for duplicate weapon -> evolve. The shop slot price is the only
-  // material cost in this path; we do NOT also charge WEAPON_EVOLVE_COST.
   if (slot.kind === 'weapon' && slot.weaponId) {
-    const existing = state.player.weapons.find(w => w.id === slot.weaponId && !w.evolved);
-    if (existing && existing.killCount >= WEAPON_EVOLVE_KILLS) {
+    const existing = state.player.weapons.find(w => w.id === slot.weaponId);
+    if (existing && (existing.level ?? 1) < WEAPON_MAX_LEVEL) {
+      state.materials -= slot.price;
+      slot.bought = true;
+      upgradeWeapon(state, existing, slot.rarity);
+      return true;
+    }
+    // Once a weapon is max level, duplicate buys can still trigger the big
+    // evolution if the kill requirement is ready. The shop slot price is the
+    // only material cost in this path; we do NOT also charge WEAPON_EVOLVE_COST.
+    if (existing && !existing.evolved && existing.killCount >= WEAPON_EVOLVE_KILLS) {
       state.materials -= slot.price;
       slot.bought = true;
       applyEvolution(state, state.player.weapons.indexOf(existing));
       return true;
     }
-    // If it did not evolve, it consumes a weapon slot. Never exceed capacity.
+    if (existing) return false;
+    // If it did not upgrade/evolve, it consumes a weapon slot. Never exceed capacity.
     if (state.player.weapons.length >= 6) return false;
   }
 
@@ -1549,7 +1571,7 @@ export function buyShopItem(state: GameState, index: number): boolean {
     state.player.weapons.push({
       id: slot.weaponId, cooldownTimer: 0,
       rarityMult: RARITY_WPN_MULT[slot.rarity] ?? 1,
-      evolved: false, killCount: 0,
+      level: 1, evolved: false, killCount: 0,
     });
   } else if (slot.kind === 'item' && slot.itemId) {
     const iDef = ITEM_DEFS.find(i => i.id === slot.itemId);
@@ -1789,6 +1811,8 @@ export function extractHudData(state: GameState): HudData {
       evolved: w.evolved,
       killCount: w.killCount,
       evolveKills: WEAPON_EVOLVE_KILLS,
+      level: w.level ?? 1,
+      maxLevel: WEAPON_MAX_LEVEL,
     })),
     waveModifier: state.waveModifier,
     modifierAnnounceTimer: state.modifierAnnounceTimer,

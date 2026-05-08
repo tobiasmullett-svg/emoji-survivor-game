@@ -141,3 +141,29 @@ describe('extractHudData', () => {
     expect(hud.equippedWeapons).toHaveLength(1);
   });
 });
+
+describe('weapon shop upgrades', () => {
+  it('upgrades an owned duplicate weapon instead of adding a second copy', () => {
+    const state = initGameState('crab', 800, 600);
+    const startingWeapon = state.player.weapons[0];
+    state.materials = 100;
+    state.shopSlots = [{
+      kind: 'weapon',
+      weaponId: startingWeapon.id,
+      rarity: 'uncommon',
+      price: 25,
+      bought: false,
+      locked: false,
+      name: 'Duplicate',
+      emoji: '🦀',
+      desc: 'Upgrade duplicate',
+    }];
+
+    expect(buyShopItem(state, 0)).toBe(true);
+    expect(state.player.weapons).toHaveLength(1);
+    expect(startingWeapon.level).toBe(2);
+    expect(startingWeapon.rarityMult).toBe(1.3);
+    expect(state.materials).toBe(75);
+    expect(state.shopSlots[0].bought).toBe(true);
+  });
+});
