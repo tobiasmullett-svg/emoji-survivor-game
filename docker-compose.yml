@@ -1,0 +1,12 @@
+services:
+  game:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: emoji-survivor:latest
+    container_name: emoji-survivor
+    restart: unless-stopped
+    ports:
+      # Map host port 80 to the nginx container port 80.
+      # Change the left side (e.g. "8080:80") to use a different host port.
+      - "80:80"
