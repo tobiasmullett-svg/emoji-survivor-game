@@ -72,7 +72,8 @@ function resolvePlayableSkinId(requestedSkinId: string | undefined, characterId:
 export default function GameScreen() {
   useKeepAwake();
   const router = useRouter();
-  const isFocused = useIsFocused();
+  const navFocused = useIsFocused();
+  const isFocused = Platform.OS === 'web' ? true : navFocused;
   const { characterId, skinId, runId } = useLocalSearchParams<{ characterId?: string | string[]; skinId?: string | string[]; runId?: string | string[] }>();
   const routeCharacterId = getRouteCharacterId(characterId);
   const routeSkinId = getRouteCharacterId(skinId);
