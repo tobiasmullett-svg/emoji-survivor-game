@@ -2,87 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { GameState } from '../../engine/types';
 import { ELITE_EMOJIS, ELITE_COLORS } from '../../engine/data';
-import { WATER_ZONES } from '../../engine/constants';
-
-const GRID_STEP = 160;
-const GRID_LINES = Array.from({ length: Math.floor(2000 / GRID_STEP) + 1 }, (_, i) => i * GRID_STEP);
-const STARS = Array.from({ length: 46 }, (_, i) => ({
-  id: i,
-  x: (i * 173) % 1960 + 20,
-  y: (i * 311) % 1960 + 20,
-  size: 1 + (i % 3),
-  opacity: 0.12 + (i % 5) * 0.045,
-}));
-const CURRENTS = Array.from({ length: 12 }, (_, i) => ({
-  id: i,
-  x: (i * 227) % 1850 + 60,
-  y: (i * 149) % 1840 + 80,
-  width: 90 + (i % 4) * 28,
-  angle: -18 + (i % 5) * 9,
-  opacity: 0.05 + (i % 3) * 0.025,
-}));
-const BUBBLES = Array.from({ length: 24 }, (_, i) => ({
-  id: i,
-  x: (i * 131) % 1900 + 35,
-  y: (i * 211) % 1900 + 35,
-  size: 3 + (i % 4),
-  speed: 0.28 + (i % 5) * 0.08,
-}));
-const REEF_PROPS = [
-  { id: 1, x: 170, y: 260, emoji: '🪸', size: 30, layer: 0 },
-  { id: 2, x: 420, y: 1560, emoji: '🌿', size: 24, layer: 1 },
-  { id: 3, x: 820, y: 300, emoji: '🪨', size: 26, layer: 0 },
-  { id: 4, x: 1240, y: 1680, emoji: '🪸', size: 34, layer: 1 },
-  { id: 5, x: 1620, y: 520, emoji: '🌿', size: 26, layer: 0 },
-  { id: 6, x: 1760, y: 1320, emoji: '💠', size: 22, layer: 1 },
-  { id: 7, x: 620, y: 1020, emoji: '🪸', size: 24, layer: 0 },
-  { id: 8, x: 1420, y: 940, emoji: '🪨', size: 28, layer: 1 },
-  { id: 9, x: 920, y: 820, emoji: '🌿', size: 23, layer: 0 },
-  { id: 10, x: 1080, y: 1180, emoji: '🪸', size: 26, layer: 1 },
-  { id: 11, x: 780, y: 1220, emoji: '💠', size: 20, layer: 0 },
-  { id: 12, x: 1200, y: 760, emoji: '🪨', size: 24, layer: 1 },
-  { id: 13, x: 300, y: 800, emoji: '🐚', size: 20, layer: 0 },
-  { id: 14, x: 1550, y: 200, emoji: '🪸', size: 28, layer: 1 },
-  { id: 15, x: 500, y: 1350, emoji: '🌊', size: 22, layer: 0 },
-  { id: 16, x: 1700, y: 900, emoji: '🪸', size: 32, layer: 1 },
-  { id: 17, x: 100, y: 1700, emoji: '🐚', size: 24, layer: 0 },
-  { id: 18, x: 950, y: 1600, emoji: '🌿', size: 28, layer: 1 },
-];
-const CAUSTIC_LIGHTS = Array.from({ length: 8 }, (_, i) => ({
-  id: i,
-  x: (i * 293) % 1700 + 150,
-  y: (i * 197) % 1700 + 150,
-  width: 140 + (i % 3) * 60,
-  height: 80 + (i % 4) * 30,
-  angle: (i * 37) % 360,
-  speed: 0.006 + (i % 3) * 0.003,
-  drift: 0.008 + (i % 4) * 0.004,
-}));
-const KELP_CLUSTERS = Array.from({ length: 10 }, (_, i) => ({
-  id: i,
-  x: (i * 199) % 1800 + 100,
-  y: (i * 263) % 1800 + 100,
-  height: 40 + (i % 3) * 16,
-  blades: 3 + (i % 3),
-  hue: i % 2 === 0 ? 'rgba(34,197,94,0.14)' : 'rgba(20,184,166,0.12)',
-}));
-const DEPTH_MOTES = Array.from({ length: 18 }, (_, i) => ({
-  id: i,
-  x: (i * 157) % 1920 + 30,
-  y: (i * 239) % 1920 + 30,
-  size: 2 + (i % 3) * 1.5,
-  driftX: 0.012 + (i % 5) * 0.006,
-  driftY: 0.008 + (i % 4) * 0.005,
-  opacity: 0.06 + (i % 4) * 0.03,
-  color: i % 3 === 0 ? '#A78BFA' : i % 3 === 1 ? '#2DD4BF' : '#BAE6FD',
-}));
-const SAND_BARS = [
-  { id: 1, x: 170, y: 180, width: 520, height: 200, rot: -9 },
-  { id: 2, x: 1250, y: 150, width: 560, height: 220, rot: 11 },
-  { id: 3, x: 210, y: 1280, width: 680, height: 260, rot: 7 },
-  { id: 4, x: 1080, y: 1220, width: 700, height: 280, rot: -6 },
-  { id: 5, x: 730, y: 760, width: 460, height: 180, rot: 4 },
-];
+import ArenaBackground from './arena/ArenaBackground';
 
 interface Props {
   gameState: React.RefObject<GameState | null>;
@@ -114,206 +34,19 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const vMinY = camera.y - sh / 2 - 60;
   const vMaxY = camera.y + sh / 2 + 60;
   const vis = (x: number, y: number) => x >= vMinX && x <= vMaxX && y >= vMinY && y <= vMaxY;
-  const visRect = (x: number, y: number, width: number, height: number) => (
-    x + width >= vMinX && x <= vMaxX && y + height >= vMinY && y <= vMaxY
-  );
-  const visibleGridX = GRID_LINES.filter(x => x >= vMinX && x <= vMaxX);
-  const visibleGridY = GRID_LINES.filter(y => y >= vMinY && y <= vMaxY);
-  const visibleCurrents = CURRENTS.filter(current => visRect(current.x - 30, current.y - 30, current.width + 60, 60));
-  const visibleReefProps = REEF_PROPS.filter(prop => visRect(prop.x - 20, prop.y - 20, prop.size + 40, prop.size + 40));
-  const visibleStars = STARS.filter(star => vis(star.x, star.y));
-  const visibleBubbles = BUBBLES.filter(bubble => {
-    const y = ((bubble.y - frame * bubble.speed) % 1960 + 1960) % 1960 + 20;
-    return vis(bubble.x, y);
-  });
   const showCritFlash = state.hitStop > 0.06;
 
   return (
     <View style={s.viewport} pointerEvents="none">
       <View style={[s.world, { transform: [{ translateX: tx }, { translateY: ty }] }]}>
-        {/* Arena bg */}
-        <View style={[s.arenaBg, { width: arena.width, height: arena.height }]}>
-          <View style={s.arenaGlowA} />
-          <View style={s.arenaGlowB} />
-          {SAND_BARS.map(bar => (
-            <View
-              key={`sand-${bar.id}`}
-              style={[
-                s.sandPatch,
-                {
-                  left: bar.x,
-                  top: bar.y,
-                  width: bar.width,
-                  height: bar.height,
-                  borderRadius: Math.round(bar.height * 0.52),
-                  transform: [{ rotate: `${bar.rot}deg` }],
-                },
-              ]}
-            />
-          ))}
-          {WATER_ZONES.map((zone, i) => (
-            <View
-              key={`water-${i}`}
-              style={[
-                s.waterZone,
-                {
-                  left: zone.x - zone.radius,
-                  top: zone.y - zone.radius,
-                  width: zone.radius * 2,
-                  height: zone.radius * 2,
-                  borderRadius: zone.radius,
-                  opacity: 0.2 + Math.sin(frame * 0.035 + i) * 0.04,
-                },
-              ]}
-            >
-              <View style={s.waterZoneInner} />
-            </View>
-          ))}
-          <View style={[s.arenaGlowC, {
-            left: 600 + Math.sin(frame * 0.005) * 120,
-            top: 800 + Math.cos(frame * 0.004) * 90,
-          }]} />
-          {/* Caustic light rays */}
-          {CAUSTIC_LIGHTS.map(cl => (
-            <View
-              key={`cl-${cl.id}`}
-              style={[
-                s.causticLight,
-                {
-                  left: cl.x + Math.sin(frame * cl.drift + cl.id) * 40,
-                  top: cl.y + Math.cos(frame * cl.drift * 0.7 + cl.id * 3) * 30,
-                  width: cl.width,
-                  height: cl.height,
-                  borderRadius: cl.height / 2,
-                  opacity: 0.035 + Math.sin(frame * cl.speed + cl.id * 2) * 0.02,
-                  transform: [{ rotate: `${cl.angle + Math.sin(frame * 0.003 + cl.id) * 12}deg` }],
-                },
-              ]}
-            />
-          ))}
-          {/* Kelp clusters */}
-          {KELP_CLUSTERS.map(kc => (
-            <View key={`kc-${kc.id}`} style={[s.kelpCluster, { left: kc.x, top: kc.y }]}>
-              {Array.from({ length: kc.blades }, (_, bi) => {
-                const sway = Math.sin((frame + kc.id * 17 + bi * 11) * 0.025) * 8;
-                return (
-                  <View
-                    key={bi}
-                    style={[
-                      s.kelpBlade,
-                      {
-                        height: kc.height + bi * 6,
-                        backgroundColor: kc.hue,
-                        left: bi * 5 - (kc.blades * 2.5),
-                        transform: [{ rotate: `${sway + (bi - 1) * 3}deg` }, { translateY: -kc.height / 2 }],
-                      },
-                    ]}
-                  />
-                );
-              })}
-            </View>
-          ))}
-          {visibleCurrents.map(current => (
-            <View
-              key={`cur-${current.id}`}
-              style={[
-                s.currentLine,
-                {
-                  left: current.x,
-                  top: current.y + Math.sin((frame + current.id * 17) * 0.018) * 14,
-                  width: current.width,
-                  opacity: current.opacity,
-                  transform: [
-                    { rotate: `${current.angle}deg` },
-                    { translateX: Math.sin((frame + current.id * 11) * 0.022) * 18 },
-                  ],
-                },
-              ]}
-            />
-          ))}
-          {visibleReefProps.map(prop => (
-            <Text
-              key={`reef-${prop.id}`}
-              style={[
-                s.reefProp,
-                {
-                  left: prop.x,
-                  top: prop.y + Math.sin((frame + prop.id * 19) * 0.025) * (2 + prop.layer),
-                  fontSize: prop.size,
-                  opacity: 0.18 + Math.sin((frame + prop.id * 13) * 0.02) * 0.05 + prop.layer * 0.06,
-                },
-              ]}
-            >
-              {prop.emoji}
-            </Text>
-          ))}
-          {BUBBLES.map(bubble => {
-            const bx = bubble.x + Math.sin((frame + bubble.id * 7) * 0.035) * 7;
-            const by = ((bubble.y - frame * bubble.speed) % 1960 + 1960) % 1960 + 20;
-            if (!vis(bx, by)) return null;
-            return (
-              <View
-                key={`bubble-${bubble.id}`}
-                style={[
-                  s.bubble,
-                  {
-                    left: bx,
-                    top: by,
-                    width: bubble.size,
-                    height: bubble.size,
-                    borderRadius: bubble.size,
-                    opacity: 0.08 + (bubble.id % 4) * 0.025,
-                  },
-                ]}
-              />
-            );
-          })}
-          {/* Depth motes */}
-          {DEPTH_MOTES.map(mote => {
-            const mx = mote.x + Math.sin(frame * mote.driftX + mote.id * 5) * 30;
-            const my = mote.y + Math.cos(frame * mote.driftY + mote.id * 3) * 25;
-            return (
-              <View
-                key={`mote-${mote.id}`}
-                style={[
-                  s.depthMote,
-                  {
-                    left: mx,
-                    top: my,
-                    width: mote.size,
-                    height: mote.size,
-                    borderRadius: mote.size,
-                    backgroundColor: mote.color,
-                    opacity: mote.opacity + Math.sin(frame * 0.03 + mote.id) * 0.02,
-                  },
-                ]}
-              />
-            );
-          })}
-          {visibleGridX.map(x => <View key={`vx-${x}`} style={[s.gridLineV, { left: x, height: arena.height }]} />)}
-          {visibleGridY.map(y => <View key={`hy-${y}`} style={[s.gridLineH, { top: y, width: arena.width }]} />)}
-          {visibleStars.map(star => (
-            <View
-              key={star.id}
-              style={[
-                s.star,
-                {
-                  left: star.x,
-                  top: star.y,
-                  width: star.size,
-                  height: star.size,
-                  borderRadius: star.size,
-                  opacity: Math.min(0.55, star.opacity + ((frame + star.id) % 90 < 45 ? 0.08 : 0)),
-                },
-              ]}
-            />
-          ))}
-          {/* Arena border pulse */}
-          <View style={[s.arenaBorderPulse, {
-            width: arena.width, height: arena.height,
-            borderColor: `rgba(45,212,191,${0.12 + Math.sin(frame * 0.02) * 0.06})`,
-          }]} />
-        </View>
+        <ArenaBackground
+          width={arena.width}
+          height={arena.height}
+          frame={frame}
+          camera={camera}
+          sw={sw}
+          sh={sh}
+        />
         {/* Hazards */}
         {(hazards ?? []).filter(h => vis(h.x, h.y)).map(h => {
           const pulse = 0.5 + Math.sin(h.pulse) * 0.18;
@@ -794,6 +527,11 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
       </View>
+      {state.inWater && (
+        <View style={s.submergeOverlay} pointerEvents="none">
+          <View style={s.submergeVignette} />
+        </View>
+      )}
       <OffScreenMarkers state={state} />
       {(p.hp / p.maxHp) < 0.32 && <DangerVignette frame={frame} />}
       {showCritFlash && <CritFlash frame={frame} />}
@@ -867,24 +605,8 @@ function OffScreenMarkers({ state }: { state: GameState }) {
 const s = StyleSheet.create({
   viewport: { ...StyleSheet.absoluteFillObject, overflow: 'hidden', backgroundColor: '#030712' },
   world: { position: 'absolute', left: 0, top: 0 },
-  arenaBg: { position: 'absolute', left: 0, top: 0, backgroundColor: '#050A15', borderWidth: 2, borderColor: 'rgba(45,212,191,0.24)', overflow: 'hidden' },
-  arenaGlowA: { position: 'absolute', width: 620, height: 620, borderRadius: 310, left: 120, top: 120, backgroundColor: 'rgba(124,58,237,0.1)' },
-  arenaGlowB: { position: 'absolute', width: 760, height: 760, borderRadius: 380, right: 120, bottom: 120, backgroundColor: 'rgba(20,184,166,0.08)' },
-  sandPatch: { position: 'absolute', backgroundColor: 'rgba(250,204,21,0.09)', borderWidth: 1, borderColor: 'rgba(234,179,8,0.16)' },
-  waterZone: { position: 'absolute', borderWidth: 2, borderColor: 'rgba(56,189,248,0.35)', backgroundColor: 'rgba(14,116,144,0.18)', alignItems: 'center', justifyContent: 'center' },
-  waterZoneInner: { width: '72%', height: '72%', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(125,211,252,0.22)', backgroundColor: 'rgba(30,64,175,0.12)' },
-  arenaGlowC: { position: 'absolute', width: 500, height: 500, borderRadius: 250, backgroundColor: 'rgba(99,102,241,0.06)' },
-  causticLight: { position: 'absolute', backgroundColor: 'rgba(186,230,253,0.06)' },
-  kelpCluster: { position: 'absolute', width: 30, height: 60, alignItems: 'center' },
-  kelpBlade: { position: 'absolute', width: 4, borderRadius: 2, bottom: 0 },
-  currentLine: { position: 'absolute', height: 2, borderRadius: 2, backgroundColor: '#BAE6FD' },
-  reefProp: { position: 'absolute', textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
-  bubble: { position: 'absolute', borderWidth: 1, borderColor: 'rgba(186,230,253,0.55)', backgroundColor: 'rgba(186,230,253,0.04)' },
-  depthMote: { position: 'absolute' },
-  gridLineV: { position: 'absolute', top: 0, width: 1, backgroundColor: 'rgba(148,163,184,0.055)' },
-  gridLineH: { position: 'absolute', left: 0, height: 1, backgroundColor: 'rgba(148,163,184,0.055)' },
-  star: { position: 'absolute', backgroundColor: '#E0F2FE' },
-  arenaBorderPulse: { position: 'absolute', left: 0, top: 0, borderWidth: 3, backgroundColor: 'transparent' },
+  submergeOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 3, backgroundColor: 'rgba(8,47,73,0.14)' },
+  submergeVignette: { ...StyleSheet.absoluteFillObject, borderWidth: 22, borderColor: 'rgba(14,116,144,0.22)', backgroundColor: 'transparent' },
   entity: { position: 'absolute', textAlign: 'center' },
   hazardWrap: { position: 'absolute', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(251,146,60,0.38)', backgroundColor: 'rgba(251,146,60,0.07)' },
   hazardPulse: { position: 'absolute', borderWidth: 2, borderColor: 'rgba(251,146,60,0.42)', backgroundColor: 'rgba(251,146,60,0.08)' },
