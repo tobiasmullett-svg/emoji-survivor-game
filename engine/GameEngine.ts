@@ -83,6 +83,28 @@ function isBossWave(waveNumber: number): boolean {
   return BOSS_WAVES.includes(waveNumber);
 }
 
+function getPowerScore(state: GameState): number {
+  const p = state.player;
+  const evolvedWeapons = p.weapons.filter(w => w.evolved).length;
+  const totalPetLevels = state.pets.reduce((sum, pet) => sum + pet.level, 0);
+  const synergyBonus = getPetSynergies(state.pets).reduce((sum, s) => sum + s.bonusPct, 0);
+  // Weighted score of progression-heavy stats that can snowball runs.
+  return (
+    (p.level - 1) * 0.06 +
+    (p.damageMult - 1) * 0.9 +
+    (p.attackSpeedMult - 1) * 0.7 +
+    evolvedWeapons * 0.3 +
+    totalPetLevels * 0.025 +
+    synergyBonus * 0.004
+  );
+}
+
+function getThreatPressure(state: GameState): number {
+  const wavePressure = Math.max(0, state.wave.number - 1) * 0.06;
+  const powerPressure = getPowerScore(state) * 0.55;
+  return Math.min(2.25, wavePressure + powerPressure);
+}
+
 function getWaveDuration(waveNumber: number): number {
   return WAVE_BASE_TIME + (waveNumber - 1) * WAVE_TIME_INC + (isBossWave(waveNumber) ? BOSS_EXTRA_TIME : 0);
 }
@@ -1214,9 +1236,14 @@ function spawnEnemies(state: GameState, dt: number): void {
   sx = clamp(sx, 20, state.arena.width - 20);
   sy = clamp(sy, 20, state.arena.height - 20);
 
-  const hpM = (1.18 + (state.wave.number - 1) * ENEMY_HP_SCALE) * (state.waveModifier === 'armored' ? 1.45 : 1);
-  const dmgM = (1.08 + (state.wave.number - 1) * ENEMY_DMG_SCALE) * (state.waveModifier === 'hazardous' ? 1.12 : 1);
-  const count = chosen.type === 'swarmer' ? (state.waveModifier === 'swarm' ? 6 : 4) : 1;
+  const pressure = getThreatPressure(state);
+  const hpPressureMult = 1 + pressure * 0.2;
+  const dmgPressureMult = 1 + pressure * 0.13;
+  const hpM = (1.18 + (state.wave.number - 1) * ENEMY_HP_SCALE) * hpPressureMult * (state.waveModifier === 'armored' ? 1.45 : 1);
+  const dmgM = (1.08 + (state.wave.number - 1) * ENEMY_DMG_SCALE) * dmgPressureMult * (state.waveModifier === 'hazardous' ? 1.12 : 1);
+  const baseSwarmerCount = state.waveModifier === 'swarm' ? 6 : 4;
+  const swarmerPressureBonus = pressure >= 0.8 ? 1 : 0;
+  const count = chosen.type === 'swarmer' ? baseSwarmerCount + swarmerPressureBonus : 1;
 
   for (let i = 0; i < count; i++) {
     if (aliveCount >= MAX_ENEMIES) break;
@@ -1601,8 +1628,9 @@ export function startNextWave(state: GameState): void {
   state.wave.spawnTimer = 0.25;
   
   // Apply modifier effects
-  let spawnInterval = Math.max(0.32, 1.02 - state.wave.number * 0.032);
-  let maxSpawns = Math.ceil(waveDuration / spawnInterval) + 12 + state.wave.number * 3;
+  const pressure = getThreatPressure(state);
+  let spawnInterval = Math.max(0.28, 1.02 - state.wave.number * 0.032 - pressure * 0.05);
+  let maxSpawns = Math.ceil(waveDuration / spawnInterval) + 12 + state.wave.number * 3 + Math.round(pressure * 8);
   if (bossWave) {
     spawnInterval *= 0.88;
     maxSpawns += 18;
