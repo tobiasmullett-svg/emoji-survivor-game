@@ -1,0 +1,19 @@
+diff --git a/node_modules/expo-keep-awake/src/ExpoKeepAwake.web.ts b/node_modules/expo-keep-awake/src/ExpoKeepAwake.web.ts
+index 9b48e90..d708eaf 100644
+--- a/node_modules/expo-keep-awake/src/ExpoKeepAwake.web.ts
++++ b/node_modules/expo-keep-awake/src/ExpoKeepAwake.web.ts
+@@ -32,8 +32,12 @@ export default {
+     if (!Platform.isDOMAvailable) {
+       return;
+     }
+-    const wakeLock = await navigator.wakeLock.request('screen');
+-    wakeLockMap[tag] = wakeLock;
++    try {
++      const wakeLock = await navigator.wakeLock.request('screen');
++      wakeLockMap[tag] = wakeLock;
++    } catch {
++      // Wake lock not allowed (e.g. document hidden) — ignore gracefully
++    }
+   },
+   async deactivate(tag: string) {
+     if (!Platform.isDOMAvailable) {
