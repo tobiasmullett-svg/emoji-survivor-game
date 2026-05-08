@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { GameState } from '../../engine/types';
 import { ELITE_EMOJIS, ELITE_COLORS } from '../../engine/data';
+import { WATER_ZONES } from '../../engine/constants';
 
 const GRID_STEP = 160;
 const GRID_LINES = Array.from({ length: Math.floor(2000 / GRID_STEP) + 1 }, (_, i) => i * GRID_STEP);
@@ -75,6 +76,13 @@ const DEPTH_MOTES = Array.from({ length: 18 }, (_, i) => ({
   opacity: 0.06 + (i % 4) * 0.03,
   color: i % 3 === 0 ? '#A78BFA' : i % 3 === 1 ? '#2DD4BF' : '#BAE6FD',
 }));
+const SAND_BARS = [
+  { id: 1, x: 170, y: 180, width: 520, height: 200, rot: -9 },
+  { id: 2, x: 1250, y: 150, width: 560, height: 220, rot: 11 },
+  { id: 3, x: 210, y: 1280, width: 680, height: 260, rot: 7 },
+  { id: 4, x: 1080, y: 1220, width: 700, height: 280, rot: -6 },
+  { id: 5, x: 730, y: 760, width: 460, height: 180, rot: 4 },
+];
 
 interface Props {
   gameState: React.RefObject<GameState | null>;
@@ -127,6 +135,40 @@ export default function GameCanvas({ gameState, frame }: Props) {
         <View style={[s.arenaBg, { width: arena.width, height: arena.height }]}>
           <View style={s.arenaGlowA} />
           <View style={s.arenaGlowB} />
+          {SAND_BARS.map(bar => (
+            <View
+              key={`sand-${bar.id}`}
+              style={[
+                s.sandPatch,
+                {
+                  left: bar.x,
+                  top: bar.y,
+                  width: bar.width,
+                  height: bar.height,
+                  borderRadius: Math.round(bar.height * 0.52),
+                  transform: [{ rotate: `${bar.rot}deg` }],
+                },
+              ]}
+            />
+          ))}
+          {WATER_ZONES.map((zone, i) => (
+            <View
+              key={`water-${i}`}
+              style={[
+                s.waterZone,
+                {
+                  left: zone.x - zone.radius,
+                  top: zone.y - zone.radius,
+                  width: zone.radius * 2,
+                  height: zone.radius * 2,
+                  borderRadius: zone.radius,
+                  opacity: 0.2 + Math.sin(frame * 0.035 + i) * 0.04,
+                },
+              ]}
+            >
+              <View style={s.waterZoneInner} />
+            </View>
+          ))}
           <View style={[s.arenaGlowC, {
             left: 600 + Math.sin(frame * 0.005) * 120,
             top: 800 + Math.cos(frame * 0.004) * 90,
@@ -636,6 +678,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
         })}
         {/* Player */}
         <View style={[s.playerWrap, { left: p.x - 24, top: p.y - 32 }]}>
+          {state.inWater && <View style={s.playerWaterRing} />}
           <View style={s.playerAura} />
           {/* Player ground glow ring */}
           <View style={[s.playerGroundGlow, {
@@ -827,6 +870,9 @@ const s = StyleSheet.create({
   arenaBg: { position: 'absolute', left: 0, top: 0, backgroundColor: '#050A15', borderWidth: 2, borderColor: 'rgba(45,212,191,0.24)', overflow: 'hidden' },
   arenaGlowA: { position: 'absolute', width: 620, height: 620, borderRadius: 310, left: 120, top: 120, backgroundColor: 'rgba(124,58,237,0.1)' },
   arenaGlowB: { position: 'absolute', width: 760, height: 760, borderRadius: 380, right: 120, bottom: 120, backgroundColor: 'rgba(20,184,166,0.08)' },
+  sandPatch: { position: 'absolute', backgroundColor: 'rgba(250,204,21,0.09)', borderWidth: 1, borderColor: 'rgba(234,179,8,0.16)' },
+  waterZone: { position: 'absolute', borderWidth: 2, borderColor: 'rgba(56,189,248,0.35)', backgroundColor: 'rgba(14,116,144,0.18)', alignItems: 'center', justifyContent: 'center' },
+  waterZoneInner: { width: '72%', height: '72%', borderRadius: 999, borderWidth: 1, borderColor: 'rgba(125,211,252,0.22)', backgroundColor: 'rgba(30,64,175,0.12)' },
   arenaGlowC: { position: 'absolute', width: 500, height: 500, borderRadius: 250, backgroundColor: 'rgba(99,102,241,0.06)' },
   causticLight: { position: 'absolute', backgroundColor: 'rgba(186,230,253,0.06)' },
   kelpCluster: { position: 'absolute', width: 30, height: 60, alignItems: 'center' },
@@ -857,6 +903,7 @@ const s = StyleSheet.create({
   hpBarBg: { width: 30, height: 3, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 2, marginTop: 2 },
   hpBar: { height: 3, backgroundColor: '#EF4444', borderRadius: 2 },
   playerWrap: { position: 'absolute', alignItems: 'center', width: 48 },
+  playerWaterRing: { position: 'absolute', top: 20, width: 60, height: 24, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(125,211,252,0.7)', backgroundColor: 'rgba(14,116,144,0.2)' },
   playerAura: { position: 'absolute', top: 30, width: 42, height: 14, borderRadius: 21, backgroundColor: 'rgba(45,212,191,0.12)' },
   playerGroundGlow: { position: 'absolute', top: 22, width: 56, height: 22, borderRadius: 28, backgroundColor: 'rgba(45,212,191,0.08)', borderWidth: 1, borderColor: 'rgba(45,212,191,0.1)' },
   playerEmoji: { fontSize: 40, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.85)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 5 },

@@ -25,6 +25,8 @@ export interface PlayerState {
   abilityActive: boolean; abilityTimer: number;
   invulnTimer: number;
   radius: number;
+  oxygen: number;
+  maxOxygen: number;
 }
 
 export interface WeaponState {
@@ -232,6 +234,8 @@ export interface GameState {
   waveModifier: WaveModifier;
   modifierAnnounceTimer: number;
   time: number;
+  inWater: boolean;
+  oxygenDamageTimer: number;
 }
 
 export interface CharacterDef {
@@ -276,6 +280,9 @@ export interface HudData {
   waveModifier?: WaveModifier;
   modifierAnnounceTimer?: number;
   petSynergies?: { kind: PetKind; count: number; bonusPct: number }[];
+  oxygen?: number;
+  maxOxygen?: number;
+  inWater?: boolean;
 }
 
 export interface HighScore {

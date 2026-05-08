@@ -110,3 +110,17 @@ export const WEAPON_EVOLVE_COST = 25;
 export const MAX_HAZARDS = 18;
 export const HAZARD_BASE_DAMAGE = 7;
 export const HAZARD_RADIUS = 42;
+
+export type WaterZone = Readonly<{ x: number; y: number; radius: number }>;
+export const WATER_ZONES: readonly WaterZone[] = Object.freeze([
+  Object.freeze({ x: 420, y: 520, radius: 220 }),
+  Object.freeze({ x: 1520, y: 460, radius: 240 }),
+  Object.freeze({ x: 560, y: 1460, radius: 260 }),
+  Object.freeze({ x: 1450, y: 1380, radius: 230 }),
+  Object.freeze({ x: 980, y: 980, radius: 170 }),
+]);
+export const PLAYER_MAX_OXYGEN = 100;
+export const OXYGEN_DRAIN_PER_SEC = 14;
+export const OXYGEN_REGEN_PER_SEC = 24;
+export const OXYGEN_DAMAGE_TICK = 7;
+export const OXYGEN_DAMAGE_INTERVAL = 0.7;

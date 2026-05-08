@@ -24,6 +24,7 @@ import {
   WAVE_MODIFIERS, MODIFIER_START_WAVE,
   WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST,
   MAX_HAZARDS, HAZARD_BASE_DAMAGE, HAZARD_RADIUS,
+  WATER_ZONES, PLAYER_MAX_OXYGEN, OXYGEN_DRAIN_PER_SEC, OXYGEN_REGEN_PER_SEC, OXYGEN_DAMAGE_TICK, OXYGEN_DAMAGE_INTERVAL,
 } from './constants';
 
 const ENEMY_DEF_BY_TYPE = new Map(ENEMY_DEFS.map(def => [def.type, def]));
@@ -151,6 +152,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
       items: [], xp: 0, level: 1, xpToNext: XP_BASE,
       abilityCooldown: 0, abilityMaxCooldown: cDef.abilityCooldown,
       abilityActive: false, abilityTimer: 0, invulnTimer: 0, radius: 20,
+      oxygen: PLAYER_MAX_OXYGEN, maxOxygen: PLAYER_MAX_OXYGEN,
     },
     enemies: [], projectiles: [], pickups: [], resourceNodes: [], pets: [], dmgNums: [], effects: [], deathParticles: [], hazards: [],
     wave: {
@@ -175,6 +177,8 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     waveModifier: 'none',
     modifierAnnounceTimer: 0,
     time: 0,
+    inWater: false,
+    oxygenDamageTimer: OXYGEN_DAMAGE_INTERVAL,
   };
   spawnResourceNodes(state, 5);
   return state;
@@ -205,6 +209,7 @@ export function updateGame(state: GameState, dt: number, input: Vec2): void {
   }
 
   updatePlayer(state, dt, input);
+  updateWaterBreath(state, dt);
   updateAbilityTimer(state, dt);
   updateEnemies(state, dt);
   updateResourceNodes(state, dt);
@@ -287,7 +292,8 @@ function updateCollecting(state: GameState, dt: number, input: Vec2): void {
 // ═══ PLAYER ═══
 function updatePlayer(state: GameState, dt: number, input: Vec2): void {
   const p = state.player;
-  const speed = p.baseSpeed * p.speedMult * 50;
+  const speedPenalty = state.inWater ? 0.84 : 1;
+  const speed = p.baseSpeed * p.speedMult * 50 * speedPenalty;
   p.x += input.x * speed * dt;
   p.y += input.y * speed * dt;
   // Knockback decay
@@ -299,6 +305,42 @@ function updatePlayer(state: GameState, dt: number, input: Vec2): void {
   p.y = clamp(p.y, p.radius, state.arena.height - p.radius);
   // Ability cooldown
   if (p.abilityCooldown > 0) p.abilityCooldown = Math.max(0, p.abilityCooldown - dt);
+}
+
+function isInWater(x: number, y: number): boolean {
+  for (const zone of WATER_ZONES) {
+    const dx = x - zone.x;
+    const dy = y - zone.y;
+    if (dx * dx + dy * dy <= zone.radius * zone.radius) return true;
+  }
+  return false;
+}
+
+function updateWaterBreath(state: GameState, dt: number): void {
+  const p = state.player;
+  state.inWater = isInWater(p.x, p.y);
+  if (state.inWater) {
+    p.oxygen = Math.max(0, p.oxygen - OXYGEN_DRAIN_PER_SEC * dt);
+    if (p.oxygen <= 0) {
+      state.oxygenDamageTimer -= dt;
+      if (state.oxygenDamageTimer <= 0) {
+        const dmg = Math.max(1, Math.round(OXYGEN_DAMAGE_TICK - p.armor * 0.25));
+        p.hp -= dmg;
+        state.stats.damageTaken += dmg;
+        state.stats.wasHit = true;
+        addDmgNum(state, p.x, p.y - 26, `🌊${dmg}`, '#38BDF8');
+        addEffect(state, p.x, p.y, 'ring', '#38BDF8', 0, 30);
+        state.shake = { x: 0, y: 0, timer: 0.1, intensity: 4 };
+        state.hitStop = Math.max(state.hitStop, HIT_STOP_DURATION * 0.8);
+        state.oxygenDamageTimer = OXYGEN_DAMAGE_INTERVAL;
+      }
+    } else {
+      state.oxygenDamageTimer = OXYGEN_DAMAGE_INTERVAL;
+    }
+  } else {
+    p.oxygen = Math.min(p.maxOxygen, p.oxygen + OXYGEN_REGEN_PER_SEC * dt);
+    state.oxygenDamageTimer = OXYGEN_DAMAGE_INTERVAL;
+  }
 }
 
 function updateAbilityTimer(state: GameState, dt: number): void {
@@ -1751,5 +1793,8 @@ export function extractHudData(state: GameState): HudData {
     waveModifier: state.waveModifier,
     modifierAnnounceTimer: state.modifierAnnounceTimer,
     petSynergies: getPetSynergies(state.pets),
+    oxygen: p.oxygen,
+    maxOxygen: p.maxOxygen,
+    inWater: state.inWater,
   };
 }

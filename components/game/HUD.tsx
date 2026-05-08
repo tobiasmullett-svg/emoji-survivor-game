@@ -7,10 +7,12 @@ interface Props { data: HudData; onPause: () => void }
 
 export default function HUD({ data, onPause }: Props) {
   const hpPct = data?.maxHp ? Math.max(0, (data.hp / data.maxHp) * 100) : 0;
+  const oxygenPct = data?.maxOxygen ? Math.max(0, (data.oxygen ?? 0) / data.maxOxygen * 100) : 0;
   const xpPct = data?.xpToNext ? Math.max(0, (data.xp / data.xpToNext) * 100) : 0;
   const wavePct = data?.waveMaxTime ? Math.max(0, (data.waveTimer / data.waveMaxTime) * 100) : 0;
   const comboActive = (data?.comboCount ?? 0) >= 3 && (data?.comboTimer ?? 0) > 0;
   const showModifier = (data?.modifierAnnounceTimer ?? 0) > 0;
+  const showOxygen = (data?.inWater ?? false) || oxygenPct < 99;
   return (
     <View style={s.container} pointerEvents="box-none">
       {/* XP bar top */}
@@ -45,6 +47,17 @@ export default function HUD({ data, onPause }: Props) {
           </Pressable>
         </View>
       </View>
+      {showOxygen && (
+        <View style={s.oxygenSection}>
+          <Text style={s.oxygenLabel}>O2</Text>
+          <View style={s.oxygenBarBg}>
+            <View style={[s.oxygenBar, { width: `${oxygenPct}%` }]} />
+          </View>
+          <Text style={[s.oxygenText, oxygenPct < 25 && s.oxygenTextDanger]}>
+            {Math.ceil(data?.oxygen ?? 0)}
+          </Text>
+        </View>
+      )}
       {/* Weapons */}
       <View style={s.weaponRow}>
         {(data?.equippedWeapons ?? []).map((w, i) => {
@@ -107,6 +120,12 @@ const s = StyleSheet.create({
   waveBar: { height: 5, backgroundColor: '#2DD4BF', borderRadius: 3 },
   timerText: { color: '#94A3B8', fontSize: 11, marginTop: 2 },
   rightSection: { flex: 1, alignItems: 'flex-end' },
+  oxygenSection: { marginHorizontal: 12, marginTop: 6, flexDirection: 'row', alignItems: 'center', gap: 6 },
+  oxygenLabel: { color: '#7DD3FC', fontSize: 11, fontWeight: '800', width: 20 },
+  oxygenBarBg: { flex: 1, height: 5, borderRadius: 3, backgroundColor: 'rgba(125,211,252,0.15)', overflow: 'hidden' },
+  oxygenBar: { height: 5, borderRadius: 3, backgroundColor: '#38BDF8' },
+  oxygenText: { color: '#BAE6FD', fontSize: 11, fontWeight: '800', width: 30, textAlign: 'right' },
+  oxygenTextDanger: { color: '#FB7185' },
   matText: { color: '#FFF', fontSize: 14, fontWeight: '700' },
   petText: { color: '#CCFBF1', fontSize: 12, fontWeight: '800', marginTop: 2 },
   pauseBtn: { marginTop: 4, padding: 4, minWidth: 34, alignItems: 'center' },
