@@ -34,7 +34,21 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const vMinY = camera.y - sh / 2 - 60;
   const vMaxY = camera.y + sh / 2 + 60;
   const vis = (x: number, y: number) => x >= vMinX && x <= vMaxX && y >= vMinY && y <= vMaxY;
-  const showCritFlash = state.hitStop > 0.06;
+  const visibleHazards = (hazards ?? []).filter(h => vis(h.x, h.y));
+  const visibleResourceNodes = (resourceNodes ?? []).filter(n => n.alive && vis(n.x, n.y));
+  const visiblePickups = (pickups ?? []).filter(pk => vis(pk.x, pk.y));
+  const visibleEnemies = (enemies ?? []).filter(e => e?.alive && vis(e.x, e.y));
+  const visibleProjectiles = (projectiles ?? []).filter(pr => pr.life > 0 && vis(pr.x, pr.y));
+  const visibleEffects = (effects ?? []).filter(fx => vis(fx.x, fx.y));
+  const visibleDeathParticles = (deathParticles ?? []).filter(dp => vis(dp.x, dp.y));
+  const visibleDmgNums = (dmgNums ?? []).filter(d => vis(d.x, d.y));
+  const crowded = state.wave.number >= 5 || visibleEnemies.length + visibleProjectiles.length > 45 || visibleEffects.length + visibleDmgNums.length > 35;
+  const displayProjectiles = crowded ? visibleProjectiles.slice(0, 48) : visibleProjectiles;
+  const displayEffects = crowded ? visibleEffects.filter(fx => fx.kind !== 'muzzle' && fx.kind !== 'spark').slice(-14) : visibleEffects;
+  const displayDeathParticles = crowded ? visibleDeathParticles.slice(-16) : visibleDeathParticles;
+  const displayDmgNums = crowded ? visibleDmgNums.slice(-10) : visibleDmgNums.slice(-22);
+  const showProjectileTrails = !crowded && visibleProjectiles.length < 34;
+  const showCritFlash = !crowded && state.hitStop > 0.06;
 
   return (
     <View style={s.viewport} pointerEvents="none">
@@ -46,9 +60,10 @@ export default function GameCanvas({ gameState, frame }: Props) {
           camera={camera}
           sw={sw}
           sh={sh}
+          simpleMode={crowded}
         />
         {/* Hazards */}
-        {(hazards ?? []).filter(h => vis(h.x, h.y)).map(h => {
+        {visibleHazards.map(h => {
           const pulse = 0.5 + Math.sin(h.pulse) * 0.18;
           return (
             <View key={h.id} style={[s.hazardWrap, { left: h.x - h.radius, top: h.y - h.radius, width: h.radius * 2, height: h.radius * 2, borderRadius: h.radius }]}>
@@ -58,7 +73,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
         {/* Resource nodes */}
-        {(resourceNodes ?? []).filter(n => n.alive && vis(n.x, n.y)).map(node => (
+        {visibleResourceNodes.map(node => (
           <View key={node.id} style={[s.nodeWrap, { left: node.x - node.radius, top: node.y - node.radius }]}>
             <View style={[s.nodeGlow, { width: node.radius * 2.2, height: node.radius * 2.2, borderRadius: node.radius * 1.1 }]} />
             <Text style={[s.nodeEmoji, { fontSize: node.radius * 1.55, opacity: node.flashTimer > 0 ? 0.45 : 1 }]}>
@@ -72,8 +87,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           </View>
         ))}
         {/* Pickups */}
-        {(pickups ?? []).map(pk => {
-          if (!vis(pk.x, pk.y)) return null;
+        {visiblePickups.map(pk => {
           return (
             <Text
               key={pk.id}
@@ -88,13 +102,13 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
         {/* Enemies */}
-        {(enemies ?? []).filter(e => e?.alive && vis(e.x, e.y)).map(e => {
+        {visibleEnemies.map(e => {
           const showTelegraph = e.telegraphTimer > 0 && e.telegraphType === 'attack';
           const telegraphProg = showTelegraph ? 1 - (e.telegraphTimer / e.telegraphMax) : 0;
           const isElite = e.elite !== 'none';
           return (
             <View key={e.id} style={[s.enemyWrap, { left: e.x - e.radius, top: e.y - e.radius - 8 }]}>
-              {isElite && (
+              {isElite && (!crowded || e.isBoss || e.flashTimer > 0) && (
                 <View style={[s.eliteAura, {
                   width: e.radius * 2.6,
                   height: e.radius * 2.6,
@@ -113,12 +127,12 @@ export default function GameCanvas({ gameState, frame }: Props) {
               <Text style={[s.entity, s.enemyEmoji, { fontSize: e.fontSize, opacity: e.flashTimer > 0 ? 0.35 : 1 }]}>
                 {e.isBoss ? '👑' : ''}{e.emoji}
               </Text>
-              {e.shieldHp > 0 && (
+              {e.shieldHp > 0 && (e.isBoss || isElite || e.flashTimer > 0) && (
                 <View style={[s.shieldBarBg, { width: e.radius * 2 }]}>
                   <View style={[s.shieldBar, { width: `${Math.max(0, (e.shieldHp / e.maxShieldHp) * 100)}%` }]} />
                 </View>
               )}
-              {e.hp < e.maxHp && (
+              {e.hp < e.maxHp && (e.isBoss || isElite || e.flashTimer > 0 || !crowded) && (
                 <View style={s.hpBarBg}>
                   <View style={[s.hpBar, { width: `${Math.max(0, (e.hp / e.maxHp) * 100)}%` }]} />
                 </View>
@@ -127,15 +141,15 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
         {/* Projectiles with afterimage trails */}
-        {(projectiles ?? []).filter(pr => pr.life > 0 && vis(pr.x, pr.y)).map(pr => {
-          const isEvolved = !pr.isEnemy && pr.emoji === '🔥' || pr.emoji === '🌩️' || pr.emoji === '⇒';
+        {displayProjectiles.map(pr => {
+          const isEvolved = !pr.isEnemy && (pr.emoji === '🔥' || pr.emoji === '🌩️' || pr.emoji === '⇒');
           const angle = Math.atan2(pr.vy, pr.vx);
           const speed = Math.sqrt(pr.vx * pr.vx + pr.vy * pr.vy);
           const trailLen = Math.min(3, Math.max(1, Math.floor(speed / 200)));
           return (
             <React.Fragment key={pr.id}>
               {/* Afterimage ghost copies */}
-              {trailLen >= 2 && (
+              {showProjectileTrails && trailLen >= 2 && (
                 <View style={[s.projectileGhost, {
                   left: pr.x - 8 - Math.cos(angle) * 12,
                   top: pr.y - 8 - Math.sin(angle) * 12,
@@ -146,7 +160,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
                   </Text>
                 </View>
               )}
-              {trailLen >= 3 && (
+              {showProjectileTrails && trailLen >= 3 && (
                 <View style={[s.projectileGhost, {
                   left: pr.x - 8 - Math.cos(angle) * 24,
                   top: pr.y - 8 - Math.sin(angle) * 24,
@@ -187,7 +201,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
         {/* Weapon effects */}
-        {(effects ?? []).filter(fx => vis(fx.x, fx.y)).map(fx => {
+        {displayEffects.map(fx => {
           const prog = 1 - fx.t / fx.maxT;
           if (fx.kind === 'slash') {
             return (
@@ -411,7 +425,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
         })}
         {/* Player */}
         <View style={[s.playerWrap, { left: p.x - 24, top: p.y - 32 }]}>
-          {state.inWater && <View style={s.playerWaterRing} />}
+          {state.inWater && !crowded && <View style={s.playerWaterRing} />}
           <View style={s.playerAura} />
           {/* Player ground glow ring */}
           <View style={[s.playerGroundGlow, {
@@ -493,7 +507,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
         {/* Death particles */}
-        {(deathParticles ?? []).filter(dp => vis(dp.x, dp.y)).map(dp => {
+        {displayDeathParticles.map(dp => {
           const prog = 1 - (dp.t / dp.maxT);
           return (
             <Text
@@ -515,7 +529,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
         {/* Damage numbers */}
-        {(dmgNums ?? []).filter(d => vis(d.x, d.y)).map(d => {
+        {displayDmgNums.map(d => {
           const prog = 1 - (d.t / d.maxT);
           return (
             <Text key={d.id} style={[s.dmgNum, {
@@ -527,7 +541,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
       </View>
-      {state.inWater && (
+      {state.inWater && !crowded && (
         <View style={s.submergeOverlay} pointerEvents="none">
           <View style={s.submergeVignette} />
         </View>

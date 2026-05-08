@@ -164,8 +164,11 @@ export default function GameScreen() {
           updateGame(state, dt, inputRef.current);
         }
         renderCt++;
-        if (renderCt % 2 === 0) setFrame(f => f + 1);
-        if (renderCt % 6 === 0) setHudData(extractHudData(state));
+        const crowdedScene = state.wave.number >= 5 || state.enemies.length + state.projectiles.length > 70 || state.effects.length + state.dmgNums.length > 40;
+        const frameModulo = crowdedScene ? 3 : 2; // ~20fps visual refresh under load, ~30fps normally.
+        const hudModulo = crowdedScene ? 10 : 6;
+        if (renderCt % frameModulo === 0) setFrame(f => f + 1);
+        if (renderCt % hudModulo === 0) setHudData(extractHudData(state));
         // Live achievement check, throttled to once per ~1s of frames.
         if (renderCt % 60 === 0 && (ph === 'playing' || ph === 'collecting')) {
           const elapsed = Math.round((Date.now() - state.stats.startTime) / 1000);

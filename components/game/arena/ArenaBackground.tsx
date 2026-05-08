@@ -109,9 +109,10 @@ export interface ArenaBackgroundProps {
   camera: { x: number; y: number };
   sw: number;
   sh: number;
+  simpleMode?: boolean;
 }
 
-export default function ArenaBackground({ width, height, frame, camera, sw, sh }: ArenaBackgroundProps) {
+export default function ArenaBackground({ width, height, frame, camera, sw, sh, simpleMode = false }: ArenaBackgroundProps) {
   const vMinX = camera.x - sw / 2 - 60;
   const vMaxX = camera.x + sw / 2 + 60;
   const vMinY = camera.y - sh / 2 - 60;
@@ -226,7 +227,7 @@ export default function ArenaBackground({ width, height, frame, camera, sw, sh }
         top: 800 + Math.cos(frame * 0.004) * 90,
       }]} />
 
-      {CAUSTIC_LIGHTS.map(cl => (
+      {!simpleMode && CAUSTIC_LIGHTS.map(cl => (
         <View
           key={`cl-${cl.id}`}
           style={[
@@ -245,7 +246,7 @@ export default function ArenaBackground({ width, height, frame, camera, sw, sh }
       ))}
 
       <View style={[StyleSheet.absoluteFillObject, { transform: [{ translateX: parallaxX }, { translateY: parallaxY }] }]} pointerEvents="none">
-        {KELP_CLUSTERS.map(kc => (
+        {!simpleMode && KELP_CLUSTERS.map(kc => (
           <View key={`kc-${kc.id}`} style={[styles.kelpCluster, { left: kc.x, top: kc.y }]}>
             {Array.from({ length: kc.blades }, (_, bi) => {
               const sway = Math.sin((frame + kc.id * 17 + bi * 11) * 0.025) * 8;
@@ -300,7 +301,7 @@ export default function ArenaBackground({ width, height, frame, camera, sw, sh }
             {prop.emoji}
           </Text>
         ))}
-        {BUBBLES.map(bubble => {
+        {!simpleMode && BUBBLES.map(bubble => {
           const bx = bubble.x + Math.sin((frame + bubble.id * 7) * 0.035) * 7;
           const by = ((bubble.y - frame * bubble.speed) % 1960 + 1960) % 1960 + 20;
           if (!vis(bx, by)) return null;
@@ -321,7 +322,7 @@ export default function ArenaBackground({ width, height, frame, camera, sw, sh }
             />
           );
         })}
-        {DEPTH_MOTES.map(mote => {
+        {!simpleMode && DEPTH_MOTES.map(mote => {
           const mx = mote.x + Math.sin(frame * mote.driftX + mote.id * 5) * 30;
           const my = mote.y + Math.cos(frame * mote.driftY + mote.id * 3) * 25;
           return (
@@ -342,7 +343,7 @@ export default function ArenaBackground({ width, height, frame, camera, sw, sh }
             />
           );
         })}
-        {STARS.filter(star => vis(star.x, star.y)).map(star => (
+        {!simpleMode && STARS.filter(star => vis(star.x, star.y)).map(star => (
           <View
             key={star.id}
             style={[
@@ -360,8 +361,8 @@ export default function ArenaBackground({ width, height, frame, camera, sw, sh }
         ))}
       </View>
 
-      {visibleGridX.map(x => <View key={`vx-${x}`} style={[styles.gridLineV, { left: x, height }]} />)}
-      {visibleGridY.map(y => <View key={`hy-${y}`} style={[styles.gridLineH, { top: y, width }]} />)}
+      {!simpleMode && visibleGridX.map(x => <View key={`vx-${x}`} style={[styles.gridLineV, { left: x, height }]} />)}
+      {!simpleMode && visibleGridY.map(y => <View key={`hy-${y}`} style={[styles.gridLineH, { top: y, width }]} />)}
 
       <View style={[styles.arenaBorderPulse, {
         width, height,
