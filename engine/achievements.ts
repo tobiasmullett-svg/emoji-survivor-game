@@ -75,6 +75,40 @@ export async function checkAchievements(stats: AchievementStats): Promise<Achiev
   return newlyUnlocked;
 }
 
+// Synchronous, in-memory check used by the in-game live toast loop.
+// Pass the set of already-unlocked ids so we don't re-fire toasts for
+// achievements unlocked in previous runs. Mutates the set.
+export function checkAchievementsLive(stats: AchievementStats, alreadyUnlocked: Set<string>): Achievement[] {
+  const newlyUnlocked: Achievement[] = [];
+  for (const ach of ACHIEVEMENTS) {
+    if (alreadyUnlocked.has(ach.id)) continue;
+    if (ach.condition(stats)) {
+      alreadyUnlocked.add(ach.id);
+      newlyUnlocked.push(ach);
+    }
+  }
+  return newlyUnlocked;
+}
+
+// Persist a list of newly unlocked achievements without re-evaluating
+// conditions. Safe to call repeatedly; re-unlocking is a no-op.
+export async function persistUnlockedAchievements(achievements: Achievement[]): Promise<void> {
+  if (achievements.length === 0) return;
+  try {
+    const progress = await getAchievementProgress();
+    let changed = false;
+    for (const a of achievements) {
+      if (!progress[a.id]?.unlocked) {
+        progress[a.id] = { id: a.id, unlocked: true, unlockedAt: new Date().toISOString() };
+        changed = true;
+      }
+    }
+    if (changed) await AsyncStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify(progress));
+  } catch {
+    // Silently fail
+  }
+}
+
 export async function getUnlockedAchievements(): Promise<Achievement[]> {
   const progress = await getAchievementProgress();
   return ACHIEVEMENTS.filter(a => progress[a.id]?.unlocked);
