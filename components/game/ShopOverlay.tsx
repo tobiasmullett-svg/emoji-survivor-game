@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import type { GameState } from '../../engine/types';
 import { RARITY_COLORS, WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST, WEAPON_MAX_LEVEL } from '../../engine/constants';
-import { buyShopItem, rerollShop, healPlayer, buyEgg, trainPets, fusePets, evolveWeapon, getPetSynergies } from '../../engine/GameEngine';
+import { buyShopItem, rerollShop, healPlayer, buyEgg, trainPets, fusePets, evolveWeapon, getPetSynergies, toggleShopSlotLock } from '../../engine/GameEngine';
 import { WEAPONS, EVOLVED_WEAPONS, ITEM_DEFS } from '../../engine/data';
 
 interface Props {
@@ -76,14 +76,11 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
             const weaponSlotBlocked = slot?.kind === 'weapon' && !existingWeapon && player.weapons.length >= 6;
             const disabled = Boolean(slot?.bought || (materials ?? 0) < (slot?.price ?? 999) || weaponSlotBlocked || duplicateBlocked);
             return (
-              <Pressable
+              <View
                 key={i}
-                onPress={() => { if (buyShopItem(state, i)) force(n => n + 1); }}
-                disabled={disabled}
-                style={[s.itemCard, { borderColor: evolutionReady ? '#F59E0B' : canUpgradeWeapon ? '#22C55E' : rc }, (slot?.bought || weaponSlotBlocked || duplicateBlocked) && s.itemBought, (evolutionReady || canUpgradeWeapon) && s.evolutionCard]}
-                accessibilityRole="button"
-                accessibilityLabel={slot?.name ?? ''}
+                style={[s.itemCard, { borderColor: evolutionReady ? '#F59E0B' : canUpgradeWeapon ? '#22C55E' : rc }, (slot?.bought || weaponSlotBlocked || duplicateBlocked) && s.itemBought, (evolutionReady || canUpgradeWeapon) && s.evolutionCard, slot?.locked && s.lockedCard]}
               >
+                {slot?.locked && <Text style={s.lockedBadge}>LOCKED</Text>}
                 <Text style={s.itemEmoji}>{slot?.emoji ?? '?'}</Text>
                 <Text style={s.itemName}>{slot?.name ?? 'Unknown'}</Text>
                 <Text style={s.itemDesc}>{evolutionReady ? 'Evolve owned weapon' : canUpgradeWeapon ? `Upgrade to Lv ${(existingWeapon?.level ?? 1) + 1}` : duplicateBlocked ? 'Max level' : weaponSlotBlocked ? 'Weapon slots full' : slot?.desc ?? ''}</Text>
@@ -94,7 +91,27 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
                   </Text>
                 )}
                 {slot?.bought && <Text style={s.soldText}>SOLD</Text>}
-              </Pressable>
+                <View style={s.cardActions}>
+                  <Pressable
+                    onPress={() => { if (buyShopItem(state, i)) force(n => n + 1); }}
+                    disabled={disabled}
+                    style={[s.buyBtn, disabled && s.disabled]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${evolutionReady ? 'Evolve' : canUpgradeWeapon ? 'Upgrade' : 'Buy'} ${slot?.name ?? 'shop item'}`}
+                  >
+                    <Text style={s.buyText}>{evolutionReady ? 'Evolve' : canUpgradeWeapon ? 'Upgrade' : 'Buy'}</Text>
+                  </Pressable>
+                  <Pressable
+                    onPress={() => { if (toggleShopSlotLock(state, i)) force(n => n + 1); }}
+                    disabled={Boolean(slot?.bought)}
+                    style={[s.lockBtn, slot?.locked && s.lockBtnActive, slot?.bought && s.disabled]}
+                    accessibilityRole="button"
+                    accessibilityLabel={`${slot?.locked ? 'Unlock' : 'Lock'} ${slot?.name ?? 'shop item'}`}
+                  >
+                    <Text style={[s.lockText, slot?.locked && s.lockTextActive]}>{slot?.locked ? 'Unlock' : 'Lock'}</Text>
+                  </Pressable>
+                </View>
+              </View>
             );
           })}
         </View>
@@ -300,6 +317,8 @@ const s = StyleSheet.create({
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
   itemCard: { width: '48%', backgroundColor: 'rgba(15,25,60,0.8)', borderRadius: 14, padding: 14, marginBottom: 12, borderWidth: 2, alignItems: 'center' },
   evolutionCard: { backgroundColor: 'rgba(245,158,11,0.12)', shadowColor: '#F59E0B', shadowOpacity: 0.35, shadowRadius: 12, shadowOffset: { width: 0, height: 0 } },
+  lockedCard: { backgroundColor: 'rgba(45,212,191,0.12)', borderStyle: 'dashed' },
+  lockedBadge: { position: 'absolute', top: 7, right: 8, color: '#99F6E4', fontSize: 8, fontWeight: '900' },
   itemBought: { opacity: 0.4 },
   itemEmoji: { fontSize: 36, marginBottom: 6 },
   itemName: { color: '#FFF', fontSize: 14, fontWeight: '700', textAlign: 'center' },
@@ -307,6 +326,13 @@ const s = StyleSheet.create({
   itemRarity: { fontSize: 10, fontWeight: '700', marginTop: 4 },
   price: { color: '#FFF', fontSize: 14, fontWeight: '700', marginTop: 6 },
   soldText: { color: '#94A3B8', fontSize: 14, fontWeight: '700', marginTop: 6 },
+  cardActions: { flexDirection: 'row', gap: 6, marginTop: 10, width: '100%' },
+  buyBtn: { flex: 1, minHeight: 28, borderRadius: 8, backgroundColor: 'rgba(99,102,241,0.82)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  buyText: { color: '#FFF', fontSize: 11, fontWeight: '900' },
+  lockBtn: { minHeight: 28, minWidth: 58, borderRadius: 8, borderWidth: 1, borderColor: 'rgba(148,163,184,0.26)', alignItems: 'center', justifyContent: 'center', paddingHorizontal: 8 },
+  lockBtnActive: { borderColor: 'rgba(45,212,191,0.72)', backgroundColor: 'rgba(45,212,191,0.14)' },
+  lockText: { color: '#CBD5E1', fontSize: 10, fontWeight: '900' },
+  lockTextActive: { color: '#99F6E4' },
   actions: { flexDirection: 'row', justifyContent: 'space-between', marginTop: 8 },
   actionBtn: { flex: 1, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 12, padding: 12, marginHorizontal: 4, alignItems: 'center' },
   actionText: { color: '#FFF', fontSize: 13, fontWeight: '600' },

@@ -1489,9 +1489,10 @@ function checkDeath(state: GameState): void {
 
 // ═══ SHOP ═══
 export function generateShopItems(state: GameState): void {
-  state.shopSlots = [];
+  const lockedSlots = state.shopSlots.filter(slot => slot.locked && !slot.bought).slice(0, 4);
+  state.shopSlots = [...lockedSlots];
   const waveInf = 1 + state.wave.number * PRICE_INFLATION;
-  for (let i = 0; i < 4; i++) {
+  while (state.shopSlots.length < 4) {
     const isWeapon = rng(0, 1) < 0.4;
     const rarity = rollRarity(state.player.luck);
     const baseP = BASE_PRICES[rarity] ?? 10;
@@ -1547,6 +1548,7 @@ export function buyShopItem(state: GameState, index: number): boolean {
     if (existing && (existing.level ?? 1) < WEAPON_MAX_LEVEL) {
       state.materials -= slot.price;
       slot.bought = true;
+      slot.locked = false;
       upgradeWeapon(state, existing, slot.rarity);
       return true;
     }
@@ -1556,6 +1558,7 @@ export function buyShopItem(state: GameState, index: number): boolean {
     if (existing && !existing.evolved && existing.killCount >= WEAPON_EVOLVE_KILLS) {
       state.materials -= slot.price;
       slot.bought = true;
+      slot.locked = false;
       applyEvolution(state, state.player.weapons.indexOf(existing));
       return true;
     }
@@ -1566,6 +1569,7 @@ export function buyShopItem(state: GameState, index: number): boolean {
 
   state.materials -= slot.price;
   slot.bought = true;
+  slot.locked = false;
 
   if (slot.kind === 'weapon' && slot.weaponId) {
     state.player.weapons.push({
@@ -1585,16 +1589,18 @@ export function buyShopItem(state: GameState, index: number): boolean {
   return true;
 }
 
+export function toggleShopSlotLock(state: GameState, index: number): boolean {
+  const slot = state.shopSlots?.[index];
+  if (!slot || slot.bought) return false;
+  slot.locked = !slot.locked;
+  return true;
+}
+
 export function rerollShop(state: GameState): boolean {
   if (state.materials < state.rerollCost) return false;
   state.materials -= state.rerollCost;
   state.rerollCost += REROLL_INC;
-  // Keep locked items
-  const locked = state.shopSlots.filter(s => s.locked);
   generateShopItems(state);
-  locked.forEach((l, i) => {
-    if (i < state.shopSlots.length) state.shopSlots[i] = l;
-  });
   return true;
 }
 
