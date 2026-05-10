@@ -119,7 +119,7 @@ export const WATER_ZONES: readonly WaterZone[] = Object.freeze([
   Object.freeze({ x: 1520, y: 460, radius: 240 }),
   Object.freeze({ x: 560, y: 1460, radius: 260 }),
   Object.freeze({ x: 1450, y: 1380, radius: 230 }),
-  Object.freeze({ x: 980, y: 980, radius: 170 }),
+  Object.freeze({ x: 1120, y: 800, radius: 150 }),
 ]);
 export const PLAYER_MAX_OXYGEN = 100;
 export const OXYGEN_DRAIN_PER_SEC = 14;

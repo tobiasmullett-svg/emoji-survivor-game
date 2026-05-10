@@ -75,8 +75,18 @@ export default function GameCanvas({ gameState, frame }: Props) {
         {/* Resource nodes */}
         {visibleResourceNodes.map(node => (
           <View key={node.id} style={[s.nodeWrap, { left: node.x - node.radius, top: node.y - node.radius }]}>
-            <View style={[s.nodeGlow, { width: node.radius * 2.2, height: node.radius * 2.2, borderRadius: node.radius * 1.1 }]} />
-            <Text style={[s.nodeEmoji, { fontSize: node.radius * 1.55, opacity: node.flashTimer > 0 ? 0.45 : 1 }]}>
+            <View style={[
+              s.nodeGlow,
+              node.kind === 'crystal' && s.nodeGlowCrystal,
+              {
+                width: node.radius * (node.kind === 'crystal' ? 2.8 : 2.1),
+                height: node.radius * (node.kind === 'crystal' ? 2.2 : 1.8),
+                borderRadius: node.radius,
+                opacity: node.flashTimer > 0 ? 0.75 : 1,
+              },
+            ]} />
+            {node.kind === 'crystal' && <View style={s.nodeSparkle} />}
+            <Text style={[s.nodeEmoji, { fontSize: node.radius * 1.65, opacity: node.flashTimer > 0 ? 0.5 : 1 }]}>
               {node.emoji}
             </Text>
             {node.hp < node.maxHp && (
@@ -106,8 +116,26 @@ export default function GameCanvas({ gameState, frame }: Props) {
           const showTelegraph = e.telegraphTimer > 0 && e.telegraphType === 'attack';
           const telegraphProg = showTelegraph ? 1 - (e.telegraphTimer / e.telegraphMax) : 0;
           const isElite = e.elite !== 'none';
+          const visualFontSize = e.fontSize + (e.isBoss ? 0 : 2);
           return (
             <View key={e.id} style={[s.enemyWrap, { left: e.x - e.radius, top: e.y - e.radius - 8 }]}>
+              <View style={[s.enemyShadow, {
+                width: e.radius * 1.9,
+                height: Math.max(7, e.radius * 0.42),
+                borderRadius: e.radius,
+                left: e.radius * 0.05,
+                top: e.radius + visualFontSize * 0.42,
+                opacity: e.flashTimer > 0 ? 0.16 : 0.26,
+              }]} />
+              {e.flashTimer > 0 && (
+                <View style={[s.enemyHitPop, {
+                  width: e.radius * 2,
+                  height: Math.max(8, e.radius * 0.5),
+                  borderRadius: e.radius,
+                  top: e.radius + visualFontSize * 0.24,
+                  backgroundColor: e.isBoss ? 'rgba(245,158,11,0.28)' : 'rgba(248,113,113,0.24)',
+                }]} />
+              )}
               {isElite && (!crowded || e.isBoss || e.flashTimer > 0) && (
                 <View style={[s.eliteAura, {
                   width: e.radius * 2.6,
@@ -124,7 +152,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
                   <View style={[s.telegraphBar, { width: `${Math.min(100, Math.max(8, telegraphProg * 100))}%` }]} />
                 </View>
               )}
-              <Text style={[s.entity, s.enemyEmoji, { fontSize: e.fontSize, opacity: e.flashTimer > 0 ? 0.35 : 1 }]}>
+              <Text style={[s.entity, s.enemyEmoji, e.flashTimer > 0 && s.enemyEmojiHit, { fontSize: visualFontSize, opacity: e.flashTimer > 0 ? 0.45 : 1 }]}>
                 {e.isBoss ? '👑' : ''}{e.emoji}
               </Text>
               {e.shieldHp > 0 && (e.isBoss || isElite || e.flashTimer > 0) && (
@@ -431,6 +459,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           <View style={[s.playerGroundGlow, {
             opacity: 0.12 + Math.sin(frame * 0.06) * 0.04,
           }]} />
+          <View style={s.playerFocusShadow} />
           <Text style={[s.playerEmoji, p.invulnTimer > 0 && { opacity: 0.5 }]}>{p.emoji}</Text>
           <View style={s.pHpBg}>
             <View style={[s.pHp, { width: `${Math.max(0, (p.hp / p.maxHp) * 100)}%` }]} />
@@ -627,22 +656,28 @@ const s = StyleSheet.create({
   hazardEmoji: { fontSize: 24, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
   nodeWrap: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   nodeGlow: { position: 'absolute', backgroundColor: 'rgba(45,212,191,0.08)', borderWidth: 1, borderColor: 'rgba(45,212,191,0.18)' },
+  nodeGlowCrystal: { backgroundColor: 'rgba(56,189,248,0.13)', borderColor: 'rgba(186,230,253,0.42)', shadowColor: '#38BDF8', shadowOpacity: 0.3, shadowRadius: 10, shadowOffset: { width: 0, height: 0 } },
+  nodeSparkle: { position: 'absolute', width: 6, height: 6, borderRadius: 3, right: -7, top: 2, backgroundColor: '#BAE6FD', shadowColor: '#BAE6FD', shadowOpacity: 0.8, shadowRadius: 5, shadowOffset: { width: 0, height: 0 } },
   nodeEmoji: { textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.75)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
   nodeHpBg: { width: 34, height: 3, backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 2, marginTop: -1 },
   nodeHp: { height: 3, backgroundColor: '#2DD4BF', borderRadius: 2 },
   pickup: { textShadowColor: 'rgba(45,212,191,0.75)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 },
   enemyWrap: { position: 'absolute', alignItems: 'center' },
-  enemyEmoji: { textShadowColor: 'rgba(0,0,0,0.85)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
+  enemyShadow: { position: 'absolute', backgroundColor: 'rgba(15,23,42,0.7)' },
+  enemyHitPop: { position: 'absolute' },
+  enemyEmoji: { textShadowColor: 'rgba(0,0,0,0.95)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
+  enemyEmojiHit: { textShadowColor: 'rgba(248,250,252,0.9)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
   eliteAura: { position: 'absolute', borderWidth: 2, backgroundColor: 'transparent' },
   telegraphBarBg: { position: 'absolute', top: -8, width: 24, height: 3, borderRadius: 2, backgroundColor: 'rgba(239,68,68,0.18)', overflow: 'hidden' },
   telegraphBar: { height: 3, borderRadius: 2, backgroundColor: '#EF4444' },
   hpBarBg: { width: 30, height: 3, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 2, marginTop: 2 },
   hpBar: { height: 3, backgroundColor: '#EF4444', borderRadius: 2 },
   playerWrap: { position: 'absolute', alignItems: 'center', width: 48 },
-  playerWaterRing: { position: 'absolute', top: 20, width: 60, height: 24, borderRadius: 30, borderWidth: 1, borderColor: 'rgba(125,211,252,0.7)', backgroundColor: 'rgba(14,116,144,0.2)' },
-  playerAura: { position: 'absolute', top: 30, width: 42, height: 14, borderRadius: 21, backgroundColor: 'rgba(45,212,191,0.12)' },
-  playerGroundGlow: { position: 'absolute', top: 22, width: 56, height: 22, borderRadius: 28, backgroundColor: 'rgba(45,212,191,0.08)', borderWidth: 1, borderColor: 'rgba(45,212,191,0.1)' },
-  playerEmoji: { fontSize: 40, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.85)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 5 },
+  playerWaterRing: { position: 'absolute', top: 22, width: 58, height: 18, borderRadius: 29, borderWidth: 1, borderColor: 'rgba(125,211,252,0.45)', backgroundColor: 'rgba(14,116,144,0.1)' },
+  playerAura: { position: 'absolute', top: 31, width: 42, height: 10, borderRadius: 21, backgroundColor: 'rgba(45,212,191,0.08)' },
+  playerGroundGlow: { position: 'absolute', top: 24, width: 58, height: 18, borderRadius: 29, backgroundColor: 'rgba(45,212,191,0.055)', borderWidth: 1, borderColor: 'rgba(45,212,191,0.08)' },
+  playerFocusShadow: { position: 'absolute', top: 29, width: 44, height: 12, borderRadius: 22, backgroundColor: 'rgba(2,6,23,0.55)' },
+  playerEmoji: { fontSize: 42, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.95)', textShadowOffset: { width: 0, height: 3 }, textShadowRadius: 7 },
   shieldIcon: { position: 'absolute', top: -5, fontSize: 20 },
   petWrap: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },
   primeAura: { position: 'absolute', borderWidth: 2, alignSelf: 'center' },

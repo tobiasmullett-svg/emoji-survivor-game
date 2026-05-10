@@ -1,7 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import Svg, { Circle, Defs, G, Path, RadialGradient, Stop } from 'react-native-svg';
+import Svg, { Defs, G, Path, RadialGradient, Stop } from 'react-native-svg';
 import { WATER_ZONES } from '../../../engine/constants';
 
 /** Path A art direction: cool deep basin, warm reef shelf sand, teal water columns with foam read (no flat blob fills). */
@@ -102,6 +102,31 @@ const DEPTH_MOTES = Array.from({ length: 18 }, (_, i) => ({
   color: i % 3 === 0 ? '#A78BFA' : i % 3 === 1 ? '#2DD4BF' : '#BAE6FD',
 }));
 
+function waterBlobPath(x: number, y: number, r: number, seed: number, frame: number, inset = 0): string {
+  const rr = r - inset;
+  const wobble = Math.sin(frame * 0.018 + seed * 1.7) * 8;
+  const wobbleB = Math.cos(frame * 0.014 + seed * 2.1) * 7;
+  const top = y - rr * (0.84 + seed * 0.012) + wobble * 0.3;
+  return [
+    `M ${x + wobble * 0.5} ${top}`,
+    `C ${x + rr * 0.42} ${y - rr * 1.02 + wobbleB} ${x + rr * 0.94} ${y - rr * 0.45} ${x + rr * 0.88 + wobble} ${y + rr * 0.05}`,
+    `C ${x + rr * 0.82} ${y + rr * 0.52} ${x + rr * 0.34 + wobbleB} ${y + rr * 0.92} ${x - rr * 0.12} ${y + rr * 0.86}`,
+    `C ${x - rr * 0.62 + wobble} ${y + rr * 0.8} ${x - rr * 0.98} ${y + rr * 0.28 + wobbleB} ${x - rr * 0.84} ${y - rr * 0.18}`,
+    `C ${x - rr * 0.7} ${y - rr * 0.63} ${x - rr * 0.28 + wobbleB} ${y - rr * 0.82} ${x + wobble * 0.5} ${top}`,
+    'Z',
+  ].join(' ');
+}
+
+function foamPath(x: number, y: number, r: number, seed: number, frame: number): string {
+  const shift = Math.sin(frame * 0.025 + seed) * 10;
+  return [
+    `M ${x - r * 0.54 + shift} ${y - r * 0.48}`,
+    `C ${x - r * 0.2} ${y - r * 0.68} ${x + r * 0.28} ${y - r * 0.66} ${x + r * 0.56} ${y - r * 0.35}`,
+    `M ${x - r * 0.66} ${y + r * 0.22}`,
+    `C ${x - r * 0.34} ${y + r * 0.44} ${x + r * 0.2} ${y + r * 0.48} ${x + r * 0.62} ${y + r * 0.14}`,
+  ].join(' ');
+}
+
 export interface ArenaBackgroundProps {
   width: number;
   height: number;
@@ -183,39 +208,32 @@ export default function ArenaBackground({ width, height, frame, camera, sw, sh, 
           const pulse = 0.03 * Math.sin(frame * 0.032 + i);
           return (
             <G key={`water-${i}`}>
-              <Circle
-                cx={z.x}
-                cy={z.y}
-                r={z.radius * 0.97}
+              <Path
+                d={waterBlobPath(z.x, z.y, z.radius, i, frame, 0)}
                 fill={`url(#waterFill-${i})`}
-                opacity={0.88 + pulse}
+                opacity={0.46 + pulse}
               />
-              <Circle
-                cx={z.x}
-                cy={z.y}
-                r={z.radius}
+              <Path
+                d={waterBlobPath(z.x, z.y, z.radius, i, frame, 5)}
                 fill="none"
-                stroke="rgba(224,242,254,0.42)"
-                strokeWidth={2.5}
-                opacity={0.55}
+                stroke="rgba(224,242,254,0.22)"
+                strokeWidth={2}
+                opacity={0.34}
               />
-              <Circle
-                cx={z.x}
-                cy={z.y}
-                r={z.radius - 9}
+              <Path
+                d={foamPath(z.x, z.y, z.radius, i, frame)}
                 fill="none"
                 stroke="rgba(255,255,255,0.2)"
-                strokeWidth={7}
-                opacity={0.22}
+                strokeWidth={5}
+                opacity={0.15}
+                strokeLinecap="round"
               />
-              <Circle
-                cx={z.x}
-                cy={z.y}
-                r={z.radius - 22}
+              <Path
+                d={waterBlobPath(z.x, z.y, z.radius, i + 3, frame, 32)}
                 fill="none"
-                stroke="rgba(45,212,191,0.15)"
+                stroke="rgba(45,212,191,0.12)"
                 strokeWidth={3}
-                opacity={0.35}
+                opacity={0.16}
               />
             </G>
           );
