@@ -97,9 +97,9 @@ export const MAX_ELITE_SHIELD = 40;
 
 export const DEATH_PARTICLE_COUNT = 6;
 export const DEATH_PARTICLE_SPEED = 120;
-export const HIT_STOP_DURATION = 0.05;
-export const CRIT_HIT_STOP = 0.12;
-export const KILL_HIT_STOP = 0.08;
+export const HIT_STOP_DURATION = 0.035;
+export const CRIT_HIT_STOP = 0.045;
+export const KILL_HIT_STOP = 0.06;
 
 export const WAVE_MODIFIERS = ['denseFog', 'doubleSpeed', 'armored', 'rich', 'hazardous', 'swarm', 'elite'] as const;
 export const MODIFIER_START_WAVE = 3;

@@ -137,7 +137,7 @@ export interface ArenaBackgroundProps {
   simpleMode?: boolean;
 }
 
-export default function ArenaBackground({ width, height, frame, camera, sw, sh, simpleMode = false }: ArenaBackgroundProps) {
+function ArenaBackground({ width, height, frame, camera, sw, sh, simpleMode = false }: ArenaBackgroundProps) {
   const vMinX = camera.x - sw / 2 - 60;
   const vMaxX = camera.x + sw / 2 + 60;
   const vMinY = camera.y - sh / 2 - 60;
@@ -389,6 +389,8 @@ export default function ArenaBackground({ width, height, frame, camera, sw, sh, 
     </View>
   );
 }
+
+export default React.memo(ArenaBackground);
 
 const styles = StyleSheet.create({
   arenaBg: { position: 'absolute', left: 0, top: 0, borderWidth: 2, borderColor: 'rgba(45,212,191,0.22)', overflow: 'hidden' },

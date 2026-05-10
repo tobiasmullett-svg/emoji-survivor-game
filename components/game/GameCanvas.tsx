@@ -49,6 +49,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const displayDmgNums = crowded ? visibleDmgNums.slice(-10) : visibleDmgNums.slice(-22);
   const showProjectileTrails = !crowded && visibleProjectiles.length < 34;
   const showCritFlash = !crowded && state.hitStop > 0.06;
+  const bgFrame = Math.floor(frame / (crowded ? 4 : 3));
 
   return (
     <View style={s.viewport} pointerEvents="none">
@@ -56,7 +57,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
         <ArenaBackground
           width={arena.width}
           height={arena.height}
-          frame={frame}
+          frame={bgFrame}
           camera={camera}
           sw={sw}
           sh={sh}

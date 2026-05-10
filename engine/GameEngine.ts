@@ -805,8 +805,15 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   state.combo.best = Math.max(state.combo.best, state.combo.count);
   state.stats.bestCombo = state.combo.best;
   
-  // Hit stop on kill
-  state.hitStop = Math.max(state.hitStop, KILL_HIT_STOP);
+  // Reserve freeze frames for meaningful kills; freezing on every small enemy
+  // makes survivor waves feel juddery once the screen gets busy.
+  if (enemy.isBoss) {
+    state.hitStop = Math.max(state.hitStop, KILL_HIT_STOP);
+  } else if (enemy.elite !== 'none') {
+    state.hitStop = Math.max(state.hitStop, KILL_HIT_STOP * 0.55);
+  } else if (state.combo.count % (COMBO_BONUS_STEP * 2) === 0) {
+    state.hitStop = Math.max(state.hitStop, KILL_HIT_STOP * 0.25);
+  }
   
   // Sound and haptics
   if (enemy.isBoss) {
@@ -821,8 +828,10 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   spawnDeathParticles(state, enemy.x, enemy.y, enemy.emoji, enemy.isBoss ? '#F59E0B' : ELITE_COLORS[enemy.elite] ?? '#EF4444', enemy.isBoss ? 12 : DEATH_PARTICLE_COUNT);
   
   // Screen shake on kill
-  const killShake = enemy.isBoss ? 10 : enemy.elite !== 'none' ? 6 : 3;
-  state.shake = { x: 0, y: 0, timer: enemy.isBoss ? 0.4 : 0.2, intensity: killShake };
+  const killShake = enemy.isBoss ? 10 : enemy.elite !== 'none' ? 5 : 1.4;
+  if (state.shake.intensity < killShake || enemy.elite !== 'none' || enemy.isBoss) {
+    state.shake = { x: 0, y: 0, timer: enemy.isBoss ? 0.34 : enemy.elite !== 'none' ? 0.16 : 0.07, intensity: killShake };
+  }
   
   // Explosive elite: damage nearby enemies and player
   if (enemy.elite === 'explosive') {

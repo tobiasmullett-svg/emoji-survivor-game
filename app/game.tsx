@@ -148,6 +148,9 @@ export default function GameScreen() {
     });
     resumeAudio();
     let lastTs = 0;
+    let lastRenderTs = 0;
+    let lastHudTs = 0;
+    let lastAchievementTs = 0;
     let renderCt = 0;
     let animationFrameId = 0;
     const loop = (ts: number) => {
@@ -164,13 +167,24 @@ export default function GameScreen() {
           updateGame(state, dt, inputRef.current);
         }
         renderCt++;
-        const crowdedScene = state.wave.number >= 5 || state.enemies.length + state.projectiles.length > 70 || state.effects.length + state.dmgNums.length > 40;
-        const frameModulo = crowdedScene ? 3 : 2; // ~20fps visual refresh under load, ~30fps normally.
-        const hudModulo = crowdedScene ? 10 : 6;
-        if (renderCt % frameModulo === 0) setFrame(f => f + 1);
-        if (renderCt % hudModulo === 0) setHudData(extractHudData(state));
+        const activeGameplay = ph === 'playing' || ph === 'waveAnnounce' || ph === 'collecting';
+        let aliveEnemies = 0;
+        for (const enemy of state.enemies) if (enemy.alive) aliveEnemies++;
+        const sceneLoad = aliveEnemies + state.projectiles.length + state.effects.length + state.dmgNums.length;
+        const crowdedScene = state.wave.number >= 7 || sceneLoad > 95;
+        const renderIntervalMs = activeGameplay ? (crowdedScene ? 33 : 16) : 120;
+        const hudIntervalMs = crowdedScene ? 160 : 100;
+        if (ts - lastRenderTs >= renderIntervalMs) {
+          lastRenderTs = ts;
+          setFrame(f => (f + 1) % 1000000);
+        }
+        if (ts - lastHudTs >= hudIntervalMs) {
+          lastHudTs = ts;
+          setHudData(extractHudData(state));
+        }
         // Live achievement check, throttled to once per ~1s of frames.
-        if (renderCt % 60 === 0 && (ph === 'playing' || ph === 'collecting')) {
+        if (ts - lastAchievementTs >= 1000 && (ph === 'playing' || ph === 'collecting')) {
+          lastAchievementTs = ts;
           const elapsed = Math.round((Date.now() - state.stats.startTime) / 1000);
           const newlyUnlocked = checkAchievementsLive({
             wave: state.wave.number,
