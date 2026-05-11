@@ -167,14 +167,14 @@ export default function GameScreen() {
           updateGame(state, dt, inputRef.current);
         }
         const p = state.player;
+        const activeGameplay = ph === 'playing' || ph === 'waveAnnounce' || ph === 'collecting';
         if (p?.maxOxygen != null && p.maxOxygen > 0) {
           setGameAmbient({
-            inWater: state.inWater,
+            inWater: activeGameplay && state.inWater,
             oxygen01: Math.max(0, Math.min(1, p.oxygen / p.maxOxygen)),
           });
         }
         renderCt++;
-        const activeGameplay = ph === 'playing' || ph === 'waveAnnounce' || ph === 'collecting';
         let aliveEnemies = 0;
         for (const enemy of state.enemies) if (enemy.alive) aliveEnemies++;
         const sceneLoad = aliveEnemies + state.projectiles.length + state.effects.length + state.dmgNums.length;

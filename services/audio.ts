@@ -23,6 +23,14 @@ let muted = false;
 let lastNativeCue = 0;
 let volume = DEFAULT_VOLUME;
 let settingsLoaded = false;
+const lastWebSoundAt: Partial<Record<SoundName, number>> = {};
+const WEB_SOUND_THROTTLE_MS: Partial<Record<SoundName, number>> = {
+  hit: 24,
+  kill: 55,
+  deepKill: 75,
+  pickupMat: 20,
+  oxygenTick: 250,
+};
 
 /** Underwater bed (web only): two low sines + lowpass, gain follows depth/oxygen. */
 let ambientGain: GainNode | null = null;
@@ -191,6 +199,12 @@ export function playSound(name: SoundName): void {
   if (Platform.OS !== 'web') {
     playNativeCue(name);
     return;
+  }
+  const throttleMs = WEB_SOUND_THROTTLE_MS[name] ?? 0;
+  if (throttleMs > 0) {
+    const now = performance.now();
+    if (now - (lastWebSoundAt[name] ?? 0) < throttleMs) return;
+    lastWebSoundAt[name] = now;
   }
   switch (name) {
     case 'shoot':

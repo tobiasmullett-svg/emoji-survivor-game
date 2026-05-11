@@ -5,7 +5,7 @@ import Svg, { Defs, G, Path, RadialGradient, Stop } from 'react-native-svg';
 import { WATER_ZONES } from '../../../engine/constants';
 
 /** Hybrid base: Flux-generated orthographic sea floor (see assets/arena/README.md). */
-const GROUND_ALBEDO = require('../../../assets/arena/ground-albedo.png');
+const GROUND_ALBEDO = require('../../../assets/arena/ground-albedo.jpg');
 
 const GRID_STEP = 160;
 const GRID_LINES = Array.from({ length: Math.floor(2000 / GRID_STEP) + 1 }, (_, i) => i * GRID_STEP);
@@ -143,7 +143,7 @@ function ArenaBackground({ width, height, frame, camera, sw, sh, simpleMode = fa
         accessibilityIgnoresInvertColors
       />
       <LinearGradient
-        colors={['rgba(2,6,23,0.38)', 'rgba(2,6,23,0.06)', 'rgba(2,6,23,0.05)', 'rgba(2,6,23,0.34)']}
+        colors={['rgba(2,6,23,0.52)', 'rgba(6,31,45,0.2)', 'rgba(4,47,46,0.18)', 'rgba(2,6,23,0.46)']}
         start={{ x: 0, y: 0 }}
         end={{ x: 1, y: 1 }}
         locations={[0, 0.35, 0.65, 1]}
@@ -365,7 +365,7 @@ export default React.memo(ArenaBackground);
 
 const styles = StyleSheet.create({
   arenaBg: { position: 'absolute', left: 0, top: 0, borderWidth: 2, borderColor: 'rgba(45,212,191,0.22)', overflow: 'hidden' },
-  groundImage: { position: 'absolute', left: 0, top: 0 },
+  groundImage: { position: 'absolute', left: 0, top: 0, opacity: 0.86 },
   arenaGlowA: { position: 'absolute', width: 620, height: 620, borderRadius: 310, left: 120, top: 120, backgroundColor: 'rgba(124,58,237,0.06)' },
   arenaGlowB: { position: 'absolute', width: 760, height: 760, borderRadius: 380, right: 120, bottom: 120, backgroundColor: 'rgba(20,184,166,0.05)' },
   arenaGlowC: { position: 'absolute', width: 500, height: 500, borderRadius: 250, backgroundColor: 'rgba(99,102,241,0.05)' },
