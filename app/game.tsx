@@ -28,7 +28,10 @@ import PauseOverlay from '../components/game/PauseOverlay';
 import LevelUpModal from '../components/game/LevelUpModal';
 import ShopOverlay from '../components/game/ShopOverlay';
 import GameOverOverlay from '../components/game/GameOverOverlay';
+import Minimap from '../components/game/Minimap';
+import TutorialOverlay from '../components/game/TutorialOverlay';
 import { BOSS_WAVES } from '../engine/constants';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const defaultHud: HudData = {
   hp: 100, maxHp: 100, armor: 0, waveNum: 1, waveTimer: 25, waveMaxTime: 25,
@@ -91,12 +94,18 @@ export default function GameScreen() {
   const [runAchievements, setRunAchievements] = useState<Achievement[]>([]);
   const [initializedRunKey, setInitializedRunKey] = useState<string | null>(null);
   const [showControlsHint, setShowControlsHint] = useState<boolean>(Platform.OS === 'web');
+  const [showTutorial, setShowTutorial] = useState(false);
+  const showTutorialRef = useRef(false);
   const scoreSaved = useRef(false);
   const achievementsChecked = useRef(false);
   const isFocusedRef = useRef(isFocused);
   const isCurrentRunInitialized = initializedRunKey === currentRunKey && gameRef.current !== null;
   const phase = phaseState.runKey === currentRunKey ? phaseState.phase : 'waveAnnounce';
   const unlockedSetRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    showTutorialRef.current = showTutorial;
+  }, [showTutorial]);
 
   // Auto-dismiss controls hint after 5 seconds
   useEffect(() => {
@@ -138,6 +147,9 @@ export default function GameScreen() {
         Object.keys(progress).filter(id => progress[id]?.unlocked)
       );
     }).catch(() => {});
+    AsyncStorage.getItem('emoji_survivor_tutorial_seen').then(seen => {
+      if (!seen && !cancelled) setShowTutorial(true);
+    }).catch(() => {});
     getProgression().then(prog => {
       if (cancelled) return;
       const selectedCharacter = resolvePlayableCharacterId(requestedCharacter, prog.unlockedCharacters);
@@ -170,7 +182,7 @@ export default function GameScreen() {
           (globalThis as any).__emojiTick = renderCt;
         }
         const ph = state.phase;
-        if (ph === 'playing' || ph === 'waveAnnounce' || ph === 'collecting') {
+        if (!showTutorialRef.current && (ph === 'playing' || ph === 'waveAnnounce' || ph === 'collecting')) {
           updateGame(state, dt, inputRef.current);
         }
         const p = state.player;
@@ -499,6 +511,17 @@ export default function GameScreen() {
       {activePhase === 'shopping' && (
         <ShopOverlay gameState={gameRef} onNextWave={handleNextWave} />
       )}
+      {/* Tutorial Overlay */}
+      {showTutorial && (
+        <TutorialOverlay
+          onDismiss={() => {
+            setShowTutorial(false);
+            AsyncStorage.setItem('emoji_survivor_tutorial_seen', 'true').catch(() => {});
+          }}
+        />
+      )}
+      {/* Minimap */}
+      <Minimap gameState={gameRef} />
       {/* Achievement toasts */}
       {canRenderActiveRun && achievementToast.length > 0 && (
         <View style={s.achievementToast}>
