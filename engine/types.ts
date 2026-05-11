@@ -236,6 +236,8 @@ export interface GameState {
   modifierAnnounceTimer: number;
   time: number;
   inWater: boolean;
+  /** Previous frame water state for enter/exit audio edges. */
+  prevInWater: boolean;
   oxygenDamageTimer: number;
 }
 

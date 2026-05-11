@@ -1,12 +1,10 @@
-# Arena ground assets (optional Path B)
+# Arena ground (hybrid)
 
-The default arena uses **code-driven** visuals in `components/game/arena/ArenaBackground.tsx` (SVG + gradients). No bitmap is required.
+## `ground-albedo.png`
 
-To add a **baked ground plate** later:
+Orthographic top-down sea-floor **hero plate** used as the base layer in [`components/game/arena/ArenaBackground.tsx`](../../components/game/arena/ArenaBackground.tsx).
 
-1. Export a **2048×2048** (or **1024×1024**) top-down underwater/sand plate as **WebP** or PNG. Prefer **WebP** under ~800KB for mobile.
-2. Place the file here, e.g. `ground-albedo.webp`.
-3. In `ArenaBackground.tsx`, wrap or underlay an `Image` / `ImageBackground` from `expo-image` or `react-native` with `width`/`height` matching the arena (`ARENA_W` / `ARENA_H` from `engine/constants.ts`), `resizeMode="cover"`.
-4. Keep **gameplay water detection** unchanged: it uses `WATER_ZONES` in `engine/constants.ts` only. Align painted water in the texture with those circles, or leave the texture neutral and keep the SVG water layers.
+- **Source:** Fal.ai — **Flux 2 Pro** (user-generated, May 2026). Terms are those of your Fal / model provider account.
+- **Gameplay:** Water and oxygen still follow **`WATER_ZONES`** in `engine/constants.ts` only. SVG water rings are drawn on top of this texture.
 
-**Licensing:** If the texture is AI-generated, from a stock site, or third-party, add a `LICENSE` or `CREDITS.txt` next to the file stating terms. CC0/public-domain textures are safest for distribution.
+To replace the plate: overwrite `ground-albedo.png` (or add `ground-albedo.webp` and update the `require()` path in `ArenaBackground.tsx`). Prefer keeping **1:1** aspect and **≥1024** width/height so `resizeMode="cover"` stays sharp on a 2000×2000 arena.

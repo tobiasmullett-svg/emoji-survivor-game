@@ -5,12 +5,13 @@ import * as Haptics from 'expo-haptics';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-type SoundName = 
+type SoundName =
   | 'shoot' | 'shootFast' | 'shootHeavy' | 'melee'
-  | 'hit' | 'crit' | 'kill' | 'explosion'
+  | 'hit' | 'crit' | 'kill' | 'deepKill' | 'explosion'
   | 'pickup' | 'pickupMat' | 'heal' | 'levelup'
   | 'waveStart' | 'bossWarning' | 'gameOver' | 'victory'
-  | 'ability' | 'shopBuy' | 'evolve' | 'error';
+  | 'ability' | 'shopBuy' | 'evolve' | 'error'
+  | 'enterWater' | 'exitWater' | 'oxygenTick';
 
 const SETTINGS_KEY = 'emoji_survivor_audio';
 const DEFAULT_VOLUME = 0.5; // 0..1, scales the underlying ~0.15 master gain
@@ -22,6 +23,13 @@ let muted = false;
 let lastNativeCue = 0;
 let volume = DEFAULT_VOLUME;
 let settingsLoaded = false;
+
+/** Underwater bed (web only): two low sines + lowpass, gain follows depth/oxygen. */
+let ambientGain: GainNode | null = null;
+let ambientOscs: OscillatorNode[] = [];
+let ambientLpf: BiquadFilterNode | null = null;
+let ambientStarted = false;
+let lastAmbientAt = 0;
 
 function effectiveGain(): number {
   return muted ? 0 : BASE_GAIN * volume;
@@ -38,6 +46,75 @@ function getCtx(): AudioContext | null {
     masterGain.connect(ctx.destination);
   }
   return ctx;
+}
+
+function ensureAmbientDrone(): void {
+  const c = getCtx();
+  if (!c || muted || ambientStarted) return;
+  ambientStarted = true;
+  ambientGain = c.createGain();
+  ambientGain.gain.value = 0;
+  ambientLpf = c.createBiquadFilter();
+  ambientLpf.type = 'lowpass';
+  ambientLpf.frequency.value = 420;
+  ambientLpf.Q.value = 0.7;
+  ambientGain.connect(ambientLpf);
+  ambientLpf.connect(masterGain!);
+  const freqs = [58, 86];
+  for (const f of freqs) {
+    const o = c.createOscillator();
+    o.type = 'sine';
+    o.frequency.value = f;
+    o.connect(ambientGain);
+    o.start();
+    ambientOscs.push(o);
+  }
+}
+
+/** Throttled ambient layer for underwater tension (web only). */
+export function setGameAmbient(opts: { inWater: boolean; oxygen01: number }): void {
+  if (Platform.OS !== 'web' || muted) return;
+  const c = getCtx();
+  if (!c) return;
+  const now = performance.now();
+  if (now - lastAmbientAt < 120) return;
+  lastAmbientAt = now;
+  ensureAmbientDrone();
+  if (!ambientGain) return;
+  const t = c.currentTime;
+  const oxy = Math.max(0, Math.min(1, opts.oxygen01));
+  if (opts.inWater) {
+    const base = 0.018 + (1 - oxy) * 0.022;
+    ambientGain.gain.cancelScheduledValues(t);
+    ambientGain.gain.linearRampToValueAtTime(base, t + 0.08);
+    if (ambientLpf) {
+      ambientLpf.frequency.cancelScheduledValues(t);
+      ambientLpf.frequency.linearRampToValueAtTime(280 + oxy * 220, t + 0.1);
+    }
+  } else {
+    ambientGain.gain.cancelScheduledValues(t);
+    ambientGain.gain.linearRampToValueAtTime(0, t + 0.25);
+  }
+}
+
+export function stopGameAmbient(): void {
+  if (Platform.OS !== 'web') return;
+  const c = ctx;
+  if (!c || !ambientStarted) return;
+  try {
+    for (const o of ambientOscs) {
+      o.stop();
+      o.disconnect();
+    }
+  } catch {
+    // already stopped
+  }
+  ambientOscs = [];
+  ambientGain?.disconnect();
+  ambientLpf?.disconnect();
+  ambientGain = null;
+  ambientLpf = null;
+  ambientStarted = false;
 }
 
 function playNativeCue(name: SoundName): void {
@@ -62,8 +139,12 @@ function playNativeCue(name: SoundName): void {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy).catch(() => {});
     return;
   }
-  if (name === 'hit' || name === 'melee' || name === 'kill' || name === 'ability') {
+  if (name === 'hit' || name === 'melee' || name === 'kill' || name === 'deepKill' || name === 'ability' || name === 'oxygenTick') {
     void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium).catch(() => {});
+    return;
+  }
+  if (name === 'enterWater' || name === 'exitWater') {
+    void Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
     return;
   }
   void Haptics.selectionAsync().catch(() => {});
@@ -135,6 +216,11 @@ export function playSound(name: SoundName): void {
     case 'kill':
       playOsc(400, 'sine', 0.2, 0.25, 800);
       break;
+    case 'deepKill':
+      playOsc(320, 'sine', 0.18, 0.22, 520);
+      playOsc(660, 'sine', 0.12, 0.12, 990);
+      playNoise(0.06, 0.06);
+      break;
     case 'explosion':
       playNoise(0.3, 0.4);
       playOsc(100, 'sawtooth', 0.3, 0.3, 30);
@@ -184,6 +270,19 @@ export function playSound(name: SoundName): void {
       break;
     case 'error':
       playOsc(150, 'square', 0.1, 0.15, 100);
+      break;
+    case 'enterWater':
+      playOsc(220, 'sine', 0.2, 0.12, 440);
+      playOsc(330, 'sine', 0.15, 0.08, 660);
+      playNoise(0.04, 0.04);
+      break;
+    case 'exitWater':
+      playOsc(520, 'sine', 0.12, 0.14, 780);
+      playOsc(390, 'sine', 0.1, 0.1, 520);
+      break;
+    case 'oxygenTick':
+      playOsc(165, 'sine', 0.14, 0.14, 95);
+      playNoise(0.05, 0.07);
       break;
   }
 }

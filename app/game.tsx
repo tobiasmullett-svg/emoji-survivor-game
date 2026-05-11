@@ -12,7 +12,7 @@ import {
 } from '../engine/GameEngine';
 import { saveHighScore } from '../services/storage';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ITEM_DEFS } from '../engine/data';
-import { playSound, resumeAudio } from '../services/audio';
+import { playSound, resumeAudio, setGameAmbient, stopGameAmbient } from '../services/audio';
 import { addRunToProgression, getProgression } from '../engine/progression';
 import {
   checkAchievements, checkAchievementsLive, persistUnlockedAchievements,
@@ -166,6 +166,13 @@ export default function GameScreen() {
         if (ph === 'playing' || ph === 'waveAnnounce' || ph === 'collecting') {
           updateGame(state, dt, inputRef.current);
         }
+        const p = state.player;
+        if (p?.maxOxygen != null && p.maxOxygen > 0) {
+          setGameAmbient({
+            inWater: state.inWater,
+            oxygen01: Math.max(0, Math.min(1, p.oxygen / p.maxOxygen)),
+          });
+        }
         renderCt++;
         const activeGameplay = ph === 'playing' || ph === 'waveAnnounce' || ph === 'collecting';
         let aliveEnemies = 0;
@@ -224,6 +231,7 @@ export default function GameScreen() {
     return () => {
       cancelled = true;
       cancelAnimationFrame(animationFrameId);
+      stopGameAmbient();
     };
   }, [currentRunKey, isFocused]);
 

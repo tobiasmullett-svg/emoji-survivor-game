@@ -179,6 +179,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     modifierAnnounceTimer: 0,
     time: 0,
     inWater: false,
+    prevInWater: false,
     oxygenDamageTimer: OXYGEN_DAMAGE_INTERVAL,
   };
   spawnResourceNodes(state, 5);
@@ -308,7 +309,7 @@ function updatePlayer(state: GameState, dt: number, input: Vec2): void {
   if (p.abilityCooldown > 0) p.abilityCooldown = Math.max(0, p.abilityCooldown - dt);
 }
 
-function isInWater(x: number, y: number): boolean {
+export function isInWater(x: number, y: number): boolean {
   for (const zone of WATER_ZONES) {
     const dx = x - zone.x;
     const dy = y - zone.y;
@@ -319,7 +320,12 @@ function isInWater(x: number, y: number): boolean {
 
 function updateWaterBreath(state: GameState, dt: number): void {
   const p = state.player;
-  state.inWater = isInWater(p.x, p.y);
+  const was = state.prevInWater;
+  const now = isInWater(p.x, p.y);
+  state.inWater = now;
+  if (now && !was) playSound('enterWater');
+  if (!now && was) playSound('exitWater');
+  state.prevInWater = now;
   if (state.inWater) {
     p.oxygen = Math.max(0, p.oxygen - OXYGEN_DRAIN_PER_SEC * dt);
     if (p.oxygen <= 0) {
@@ -334,6 +340,7 @@ function updateWaterBreath(state: GameState, dt: number): void {
         state.shake = { x: 0, y: 0, timer: 0.1, intensity: 4 };
         state.hitStop = Math.max(state.hitStop, HIT_STOP_DURATION * 0.8);
         state.oxygenDamageTimer = OXYGEN_DAMAGE_INTERVAL;
+        playSound('oxygenTick');
       }
     } else {
       state.oxygenDamageTimer = OXYGEN_DAMAGE_INTERVAL;
@@ -822,6 +829,8 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   } else if (enemy.elite !== 'none') {
     playSound('kill');
     haptic('light');
+  } else {
+    playSound(isInWater(enemy.x, enemy.y) ? 'deepKill' : 'kill');
   }
   
   // Death particles
@@ -874,10 +883,16 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
     dropPickup(state, enemy.x + rng(-18, 18), enemy.y + rng(-18, 18), 'egg', 1, '🥚');
   }
   
-  // Drop pickups
+  // Drop pickups — kills inside code water zones grant extra mats/XP (risk/reward).
   const richMult = state.waveModifier === 'rich' ? 2 : 1;
-  const matCount = (enemy.isBoss ? rngInt(20, 50) : rngInt(1, 3)) * richMult;
-  const xpCount = enemy.isBoss ? rngInt(5, 10) : rngInt(1, 2);
+  const deep = isInWater(enemy.x, enemy.y);
+  let matCount = (enemy.isBoss ? rngInt(20, 50) : rngInt(1, 3)) * richMult;
+  let xpCount = enemy.isBoss ? rngInt(5, 10) : rngInt(1, 2);
+  if (deep && !enemy.isBoss) {
+    matCount += rngInt(1, 2);
+    xpCount += 1;
+    addDmgNum(state, enemy.x, enemy.y - 48, 'deep bonus', '#38BDF8');
+  }
   const harvestBonus = 1 + state.player.harvesting * 0.05;
   for (let i = 0; i < matCount; i++) {
     if (!dropPickup(state, enemy.x + rng(-20, 20), enemy.y + rng(-20, 20), 'material', Math.round(1 * harvestBonus), '🔩')) break;

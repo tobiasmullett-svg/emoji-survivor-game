@@ -1,32 +1,11 @@
 import React from 'react';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import Svg, { Defs, G, Path, RadialGradient, Stop } from 'react-native-svg';
 import { WATER_ZONES } from '../../../engine/constants';
 
-/** Path A art direction: cool deep basin, warm reef shelf sand, teal water columns with foam read (no flat blob fills). */
-const SAND_SHELVES: readonly { d: string; opacity: number }[] = Object.freeze([
-  Object.freeze({
-    d: 'M -40 140 C 280 40 520 80 720 220 C 920 360 780 520 520 560 C 260 600 40 480 -40 300 Z',
-    opacity: 0.42,
-  }),
-  Object.freeze({
-    d: 'M 1120 60 C 1380 -20 1680 40 1880 280 L 2040 420 C 1920 520 1580 480 1420 360 C 1260 240 1180 140 1120 60 Z',
-    opacity: 0.38,
-  }),
-  Object.freeze({
-    d: 'M -20 1180 C 200 980 480 920 760 1040 C 1040 1160 980 1320 760 1440 C 540 1560 220 1480 60 1340 C -40 1280 -20 1180 -20 1180 Z',
-    opacity: 0.4,
-  }),
-  Object.freeze({
-    d: 'M 920 1120 C 1140 1000 1480 1040 1680 1240 C 1880 1440 1760 1680 1480 1740 C 1200 1800 960 1720 840 1540 C 720 1360 800 1220 920 1120 Z',
-    opacity: 0.36,
-  }),
-  Object.freeze({
-    d: 'M 640 720 C 820 620 1080 660 1220 820 C 1360 980 1200 1120 960 1140 C 720 1160 520 1040 480 880 C 440 720 520 760 640 720 Z',
-    opacity: 0.32,
-  }),
-]);
+/** Hybrid base: Flux-generated orthographic sea floor (see assets/arena/README.md). */
+const GROUND_ALBEDO = require('../../../assets/arena/ground-albedo.png');
 
 const GRID_STEP = 160;
 const GRID_LINES = Array.from({ length: Math.floor(2000 / GRID_STEP) + 1 }, (_, i) => i * GRID_STEP);
@@ -157,11 +136,17 @@ function ArenaBackground({ width, height, frame, camera, sw, sh, simpleMode = fa
 
   return (
     <View style={[styles.arenaBg, { width, height }]}>
+      <Image
+        source={GROUND_ALBEDO}
+        style={[styles.groundImage, { width, height }]}
+        resizeMode="cover"
+        accessibilityIgnoresInvertColors
+      />
       <LinearGradient
-        colors={['#020617', '#0c1528', 'rgba(15,118,110,0.14)', 'rgba(49,46,129,0.14)', '#020617']}
-        start={{ x: 0.1, y: 0 }}
-        end={{ x: 0.95, y: 1 }}
-        locations={[0, 0.35, 0.55, 0.78, 1]}
+        colors={['rgba(2,6,23,0.38)', 'rgba(2,6,23,0.06)', 'rgba(2,6,23,0.05)', 'rgba(2,6,23,0.34)']}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        locations={[0, 0.35, 0.65, 1]}
         style={StyleSheet.absoluteFillObject}
       />
 
@@ -170,11 +155,6 @@ function ArenaBackground({ width, height, frame, camera, sw, sh, simpleMode = fa
 
       <Svg width={width} height={height} style={StyleSheet.absoluteFillObject}>
         <Defs>
-          <RadialGradient id="sandGrain" cx="42%" cy="36%" rx="68%" ry="72%">
-            <Stop offset="0%" stopColor="rgba(253,230,138,0.55)" />
-            <Stop offset="45%" stopColor="rgba(245,158,11,0.22)" />
-            <Stop offset="100%" stopColor="rgba(120,53,15,0.08)" />
-          </RadialGradient>
           {WATER_ZONES.map((z, i) => (
             <RadialGradient
               key={`wg-${i}`}
@@ -194,15 +174,6 @@ function ArenaBackground({ width, height, frame, camera, sw, sh, simpleMode = fa
             </RadialGradient>
           ))}
         </Defs>
-
-        {SAND_SHELVES.map((sand, i) => (
-          <Path
-            key={`sand-${i}`}
-            d={sand.d}
-            fill="url(#sandGrain)"
-            fillOpacity={sand.opacity}
-          />
-        ))}
 
         {WATER_ZONES.map((z, i) => {
           const pulse = 0.03 * Math.sin(frame * 0.032 + i);
@@ -394,8 +365,9 @@ export default React.memo(ArenaBackground);
 
 const styles = StyleSheet.create({
   arenaBg: { position: 'absolute', left: 0, top: 0, borderWidth: 2, borderColor: 'rgba(45,212,191,0.22)', overflow: 'hidden' },
-  arenaGlowA: { position: 'absolute', width: 620, height: 620, borderRadius: 310, left: 120, top: 120, backgroundColor: 'rgba(124,58,237,0.08)' },
-  arenaGlowB: { position: 'absolute', width: 760, height: 760, borderRadius: 380, right: 120, bottom: 120, backgroundColor: 'rgba(20,184,166,0.06)' },
+  groundImage: { position: 'absolute', left: 0, top: 0 },
+  arenaGlowA: { position: 'absolute', width: 620, height: 620, borderRadius: 310, left: 120, top: 120, backgroundColor: 'rgba(124,58,237,0.06)' },
+  arenaGlowB: { position: 'absolute', width: 760, height: 760, borderRadius: 380, right: 120, bottom: 120, backgroundColor: 'rgba(20,184,166,0.05)' },
   arenaGlowC: { position: 'absolute', width: 500, height: 500, borderRadius: 250, backgroundColor: 'rgba(99,102,241,0.05)' },
   causticLight: { position: 'absolute', backgroundColor: 'rgba(186,230,253,0.07)' },
   kelpCluster: { position: 'absolute', width: 30, height: 60, alignItems: 'center' },
