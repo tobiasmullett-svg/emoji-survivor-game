@@ -59,6 +59,24 @@ export default function HUD({ data, onPause }: Props) {
           </Text>
         </View>
       )}
+      {/* Boss health bar */}
+      {(data?.bossMaxHp ?? 0) > 0 && (
+        <View style={s.bossBarSection}>
+          <View style={s.bossBarHeader}>
+            <Text style={s.bossEmoji}>{data.bossEmoji ?? '👑'}</Text>
+            <Text style={s.bossLabel}>BOSS</Text>
+          </View>
+          {(data.bossMaxShieldHp ?? 0) > 0 && (data.bossShieldHp ?? 0) > 0 && (
+            <View style={s.bossShieldBarBg}>
+              <View style={[s.bossShieldBar, { width: `${Math.max(0, ((data.bossShieldHp ?? 0) / (data.bossMaxShieldHp ?? 1)) * 100)}%` }]} />
+            </View>
+          )}
+          <View style={s.bossHpBarBg}>
+            <View style={[s.bossHpBar, { width: `${Math.max(0, ((data.bossHp ?? 0) / (data.bossMaxHp ?? 1)) * 100)}%` }]} />
+          </View>
+          <Text style={s.bossHpText}>{Math.ceil(data.bossHp ?? 0)} / {data.bossMaxHp ?? 0}</Text>
+        </View>
+      )}
       {/* Weapons */}
       <View style={s.weaponRow}>
         {(data?.equippedWeapons ?? []).map((w, i) => {
@@ -153,4 +171,13 @@ const s = StyleSheet.create({
   modifierText: { color: '#F59E0B', fontSize: 13, fontWeight: '800', textTransform: 'capitalize' },
   synergyPill: { position: 'absolute', right: 12, top: 78, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 10, backgroundColor: 'rgba(99,102,241,0.16)', borderWidth: 1, borderColor: 'rgba(99,102,241,0.35)', flexDirection: 'row', gap: 6 },
   synergyPillText: { color: '#A78BFA', fontSize: 11, fontWeight: '800' },
+  bossBarSection: { alignSelf: 'center', width: '72%', minWidth: 220, maxWidth: 400, marginTop: 6, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12, backgroundColor: 'rgba(127,29,29,0.45)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.4)' },
+  bossBarHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 4 },
+  bossEmoji: { fontSize: 18 },
+  bossLabel: { color: '#F59E0B', fontSize: 12, fontWeight: '900', letterSpacing: 2 },
+  bossHpBarBg: { height: 10, backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 5, overflow: 'hidden' },
+  bossHpBar: { height: 10, backgroundColor: '#EF4444', borderRadius: 5 },
+  bossShieldBarBg: { height: 5, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 3, overflow: 'hidden', marginBottom: 3 },
+  bossShieldBar: { height: 5, backgroundColor: '#2DD4BF', borderRadius: 3 },
+  bossHpText: { color: '#FCA5A5', fontSize: 10, fontWeight: '800', textAlign: 'center', marginTop: 3 },
 });

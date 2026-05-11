@@ -59,6 +59,7 @@ export interface Enemy {
   telegraphTimer: number;
   telegraphMax: number;
   telegraphType: 'none' | 'attack' | 'charge';
+  fireTrailTimer: number;
 }
 
 export interface Projectile {
@@ -153,6 +154,8 @@ export interface HazardZone {
   damage: number;
   pulse: number;
   emoji: string;
+  /** If set, hazard expires after this many seconds. Undefined = permanent. */
+  life?: number;
 }
 
 export interface WaveState {
@@ -228,7 +231,6 @@ export interface GameState {
   healCost: number;
   arena: { width: number; height: number };
   sw: number; sh: number;
-  nextId: number;
   cleanupCounter: number;
   victory: boolean;
   hitStop: number;
@@ -287,6 +289,11 @@ export interface HudData {
   oxygen?: number;
   maxOxygen?: number;
   inWater?: boolean;
+  bossHp?: number;
+  bossMaxHp?: number;
+  bossShieldHp?: number;
+  bossMaxShieldHp?: number;
+  bossEmoji?: string;
 }
 
 export interface HighScore {

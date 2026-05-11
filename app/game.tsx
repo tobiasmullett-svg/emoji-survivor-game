@@ -98,6 +98,13 @@ export default function GameScreen() {
   const phase = phaseState.runKey === currentRunKey ? phaseState.phase : 'waveAnnounce';
   const unlockedSetRef = useRef<Set<string>>(new Set());
 
+  // Auto-dismiss controls hint after 5 seconds
+  useEffect(() => {
+    if (!showControlsHint) return;
+    const timer = setTimeout(() => setShowControlsHint(false), 5000);
+    return () => clearTimeout(timer);
+  }, [showControlsHint]);
+
   useEffect(() => {
     isFocusedRef.current = isFocused;
   }, [isFocused]);

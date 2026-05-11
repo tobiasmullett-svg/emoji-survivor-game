@@ -73,6 +73,13 @@ export default function MainMenu() {
         >
           <Text style={s.btnTextSec}>🏅 ACHIEVEMENTS</Text>
         </Pressable>
+        <Pressable
+          onPress={() => router.push('/settings')}
+          style={({ pressed }) => [s.btn, s.btnSecondary, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button" accessibilityLabel="Settings"
+        >
+          <Text style={s.btnTextSec}>⚙️ SETTINGS</Text>
+        </Pressable>
         <Text style={s.version}>v1.0.0</Text>
       </SafeAreaView>
     </LinearGradient>

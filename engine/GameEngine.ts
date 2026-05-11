@@ -231,7 +231,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     rerollCost: REROLL_BASE,
     healCost: HEAL_BASE_COST,
     arena: { width: ARENA_W, height: ARENA_H },
-    sw, sh, nextId: 100, cleanupCounter: 0, victory: false,
+    sw, sh, cleanupCounter: 0, victory: false,
     hitStop: 0,
     waveModifier: 'none',
     modifierAnnounceTimer: 0,
@@ -495,7 +495,7 @@ function updateEnemies(state: GameState, dt: number): void {
       let ny = dy / d;
       // Ghost wobble (uses engine time so it freezes during pause/hitstop)
       if (e.type === 'ghost') {
-        const wobble = Math.sin(state.time * 3 + e.id * 7) * 0.6;
+        const wobble = Math.sin(state.time * 3 + e.id * 7) * 0.38;
         const a = Math.atan2(ny, nx) + wobble;
         nx = Math.cos(a);
         ny = Math.sin(a);
@@ -513,6 +513,22 @@ function updateEnemies(state: GameState, dt: number): void {
     e.y = clamp(e.y, 5, state.arena.height - 5);
   }
   separateEnemies(state);
+  // FireElem fire trail: spawn small temporary hazards behind fire elementals
+  for (const e of state.enemies) {
+    if (!e.alive || e.type !== 'fireElem') continue;
+    e.fireTrailTimer = (e.fireTrailTimer ?? 0) - dt;
+    if (e.fireTrailTimer <= 0 && state.hazards.length < MAX_HAZARDS) {
+      e.fireTrailTimer = 1.8;
+      state.hazards.push({
+        id: nid(), x: e.x, y: e.y,
+        radius: 28,
+        damage: Math.max(3, Math.round(e.damage * 0.35)),
+        pulse: rng(0, Math.PI * 2),
+        emoji: '🔥',
+        life: 4,
+      });
+    }
+  }
 }
 
 function separateEnemies(state: GameState): void {
@@ -1173,6 +1189,8 @@ function updateHazards(state: GameState, dt: number): void {
   const p = state.player;
   for (const h of state.hazards) {
     h.pulse += dt * 4;
+    // Tick lifetime for temporary hazards (fire trails)
+    if (h.life !== undefined) h.life -= dt;
     if (p.invulnTimer <= 0 && !p.abilityActive && dist(p, h) < p.radius + h.radius * 0.72) {
       const dmg = Math.max(1, Math.round(h.damage - p.armor * 0.5));
       p.hp -= dmg;
@@ -1185,6 +1203,8 @@ function updateHazards(state: GameState, dt: number): void {
       state.hitStop = Math.max(state.hitStop, HIT_STOP_DURATION);
     }
   }
+  // Remove expired temporary hazards
+  state.hazards = state.hazards.filter(h => h.life === undefined || h.life > 0);
 }
 
 function hatchPet(state: GameState): void {
@@ -1212,6 +1232,24 @@ function hatchPet(state: GameState): void {
 
 // ═══ EFFECTS ═══
 function addDmgNum(state: GameState, x: number, y: number, text: string, color: string): void {
+  // Batch: merge with existing damage number on same-ish position within time window
+  const isNumeric = /^\d+$/.test(text) || /^💥\d+$/.test(text);
+  if (isNumeric) {
+    for (const d of state.dmgNums) {
+      const dx = d.x - x;
+      const dy = d.y - y;
+      if (dx * dx + dy * dy < 400 && d.color === color && d.t > 0.65) {
+        const existingNum = parseInt(d.text.replace('💥', ''), 10);
+        const newNum = parseInt(text.replace('💥', ''), 10);
+        if (!isNaN(existingNum) && !isNaN(newNum)) {
+          const isCrit = d.text.startsWith('💥') || text.startsWith('💥');
+          d.text = isCrit ? `💥${existingNum + newNum}` : String(existingNum + newNum);
+          d.t = d.maxT; // reset timer
+          return;
+        }
+      }
+    }
+  }
   if (state.dmgNums.length >= MAX_DMG_NUMS) state.dmgNums.shift();
   state.dmgNums.push({ id: nid(), x, y, text, color, t: 0.8, maxT: 0.8 });
 }
@@ -1431,6 +1469,7 @@ function spawnEnemies(state: GameState, dt: number): void {
       elite: 'none',
       shieldHp: 0, maxShieldHp: 0,
       telegraphTimer: 0, telegraphMax: 0, telegraphType: 'none',
+      fireTrailTimer: chosen.type === 'fireElem' ? rng(0.2, 1.0) : 0,
     };
     if (isBoss) {
       enemy.maxShieldHp = Math.round(enemy.maxHp * 0.18);
@@ -1589,6 +1628,8 @@ function applyStatChange(p: PlayerState, stat: string, amount: number): void {
 export function applyLevelUpChoice(state: GameState, index: number): void {
   const fn = state._levelUpApply?.[index];
   if (fn) fn(state.player);
+  // Brief invulnerability after choosing to prevent instant deaths
+  state.player.invulnTimer = Math.max(state.player.invulnTimer, 0.5);
   state.phase = 'playing';
 }
 
@@ -1946,5 +1987,21 @@ export function extractHudData(state: GameState): HudData {
     oxygen: p.oxygen,
     maxOxygen: p.maxOxygen,
     inWater: state.inWater,
+    ...getBossHudData(state),
   };
+}
+
+function getBossHudData(state: GameState): Pick<HudData, 'bossHp' | 'bossMaxHp' | 'bossShieldHp' | 'bossMaxShieldHp' | 'bossEmoji'> {
+  for (const e of state.enemies) {
+    if (e.alive && e.isBoss) {
+      return {
+        bossHp: e.hp,
+        bossMaxHp: e.maxHp,
+        bossShieldHp: e.shieldHp,
+        bossMaxShieldHp: e.maxShieldHp,
+        bossEmoji: e.emoji,
+      };
+    }
+  }
+  return {};
 }
