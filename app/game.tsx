@@ -510,8 +510,10 @@ export default function GameScreen() {
           materials={state?.materials ?? 0}
           playerEmoji={state?.player?.emoji ?? '🦀'}
           victory={state?.victory ?? false}
-          weapons={(state?.player?.weapons ?? []).map(w => ({ 
-            emoji: (w?.evolved ? EVOLVED_WEAPONS[w?.id] : WEAPONS[w?.id])?.emoji ?? '?' 
+          weapons={(state?.player?.weapons ?? []).map(w => ({
+            id: w?.id,
+            evolved: w?.evolved,
+            emoji: (w?.evolved ? EVOLVED_WEAPONS[w?.id] : WEAPONS[w?.id])?.emoji ?? '?'
           }))}
           items={(state?.player?.items ?? []).map(it => ({
             emoji: ITEM_DEFS.find(d => d.id === it?.id)?.emoji ?? '?',

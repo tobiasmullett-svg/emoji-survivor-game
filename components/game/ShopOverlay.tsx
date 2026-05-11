@@ -4,6 +4,7 @@ import type { GameState } from '../../engine/types';
 import { RARITY_COLORS, WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST, WEAPON_MAX_LEVEL } from '../../engine/constants';
 import { buyShopItem, rerollShop, healPlayer, buyEgg, trainPets, fusePets, evolveWeapon, getPetSynergies, toggleShopSlotLock } from '../../engine/GameEngine';
 import { WEAPONS, EVOLVED_WEAPONS, ITEM_DEFS } from '../../engine/data';
+import WeaponIcon, { hasWeaponIcon } from './WeaponIcon';
 
 interface Props {
   gameState: React.RefObject<GameState | null>;
@@ -81,7 +82,13 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
                 style={[s.itemCard, { borderColor: evolutionReady ? '#F59E0B' : canUpgradeWeapon ? '#22C55E' : rc }, (slot?.bought || weaponSlotBlocked || duplicateBlocked) && s.itemBought, (evolutionReady || canUpgradeWeapon) && s.evolutionCard, slot?.locked && s.lockedCard]}
               >
                 {slot?.locked && <Text style={s.lockedBadge}>LOCKED</Text>}
-                <Text style={s.itemEmoji}>{slot?.emoji ?? '?'}</Text>
+                {slot?.kind === 'weapon' && hasWeaponIcon(slot.weaponId, Boolean(existingWeapon?.evolved))
+                  ? (
+                    <View style={s.itemWeaponIconWrap}>
+                      <WeaponIcon id={slot.weaponId} evolved={Boolean(existingWeapon?.evolved)} size={62} />
+                    </View>
+                  )
+                  : <Text style={s.itemEmoji}>{slot?.emoji ?? '?'}</Text>}
                 <Text style={s.itemName}>{slot?.name ?? 'Unknown'}</Text>
                 <Text style={s.itemDesc}>{evolutionReady ? 'Evolve owned weapon' : canUpgradeWeapon ? `Upgrade to Lv ${(existingWeapon?.level ?? 1) + 1}` : duplicateBlocked ? 'Max level' : weaponSlotBlocked ? 'Weapon slots full' : slot?.desc ?? ''}</Text>
                 <Text style={[s.itemRarity, { color: evolutionReady ? '#F59E0B' : canUpgradeWeapon ? '#22C55E' : rc }]}>{evolutionReady ? 'EVOLUTION' : canUpgradeWeapon ? `LEVEL ${(existingWeapon?.level ?? 1) + 1}` : (slot?.rarity ?? 'common').toUpperCase()}</Text>
@@ -250,7 +257,9 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
             const ready = !w.evolved && w.killCount >= WEAPON_EVOLVE_KILLS;
             return (
               <View key={i} style={[s.invSlot, w?.evolved && s.invSlotEvolved, ready && s.invSlotReady]}>
-                <Text style={s.invEmoji}>{getWeaponEmoji(w?.id, w?.evolved)}</Text>
+                {hasWeaponIcon(w?.id, w?.evolved)
+                  ? <WeaponIcon id={w?.id} evolved={w?.evolved} size={38} style={s.invImage} />
+                  : <Text style={s.invEmoji}>{getWeaponEmoji(w?.id, w?.evolved)}</Text>}
                 <Text style={s.weaponLevel}>Lv {w.level ?? 1}</Text>
                 {!w.evolved && <Text style={s.killText}>{Math.min(w.killCount, WEAPON_EVOLVE_KILLS)}/{WEAPON_EVOLVE_KILLS}</Text>}
                 {!w.evolved && <View style={[s.invProgress, { width: `${progress}%` }]} />}
@@ -321,6 +330,7 @@ const s = StyleSheet.create({
   lockedBadge: { position: 'absolute', top: 7, right: 8, color: '#99F6E4', fontSize: 8, fontWeight: '900' },
   itemBought: { opacity: 0.4 },
   itemEmoji: { fontSize: 36, marginBottom: 6 },
+  itemWeaponIconWrap: { width: 70, height: 58, alignItems: 'center', justifyContent: 'center', marginBottom: 2 },
   itemName: { color: '#FFF', fontSize: 14, fontWeight: '700', textAlign: 'center' },
   itemDesc: { color: '#94A3B8', fontSize: 12, textAlign: 'center', marginTop: 4 },
   itemRarity: { fontSize: 10, fontWeight: '700', marginTop: 4 },
@@ -346,6 +356,7 @@ const s = StyleSheet.create({
   invSlotReady: { borderWidth: 2, borderColor: '#F59E0B', backgroundColor: 'rgba(245,158,11,0.16)' },
   invProgress: { position: 'absolute', bottom: 0, left: 0, height: 3, backgroundColor: '#F59E0B' },
   invEmoji: { fontSize: 18, zIndex: 2 },
+  invImage: { zIndex: 2 },
   killText: { position: 'absolute', bottom: 4, color: '#FFF', fontSize: 7, fontWeight: '800', zIndex: 2, textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
   weaponLevel: { position: 'absolute', top: 2, right: 3, color: '#A7F3D0', fontSize: 7, fontWeight: '900', zIndex: 3, textShadowColor: '#000', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
   itemInvRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 4, marginTop: 4 },

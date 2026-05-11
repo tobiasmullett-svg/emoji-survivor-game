@@ -121,6 +121,23 @@ export const WATER_ZONES: readonly WaterZone[] = Object.freeze([
   Object.freeze({ x: 1450, y: 1380, radius: 230 }),
   Object.freeze({ x: 1120, y: 800, radius: 150 }),
 ]);
+export type ArenaObstacle = Readonly<{
+  x: number;
+  y: number;
+  rx: number;
+  ry: number;
+  kind: 'rock' | 'coral' | 'barrel';
+}>;
+export const ARENA_OBSTACLES: readonly ArenaObstacle[] = Object.freeze([
+  Object.freeze({ x: 765, y: 585, rx: 122, ry: 86, kind: 'rock' }),
+  Object.freeze({ x: 905, y: 650, rx: 96, ry: 118, kind: 'coral' }),
+  Object.freeze({ x: 1660, y: 720, rx: 112, ry: 122, kind: 'rock' }),
+  Object.freeze({ x: 1535, y: 1080, rx: 64, ry: 60, kind: 'rock' }),
+  Object.freeze({ x: 1680, y: 1185, rx: 72, ry: 58, kind: 'barrel' }),
+  Object.freeze({ x: 1240, y: 1410, rx: 116, ry: 94, kind: 'coral' }),
+  Object.freeze({ x: 380, y: 1450, rx: 72, ry: 54, kind: 'rock' }),
+  Object.freeze({ x: 1580, y: 1840, rx: 138, ry: 76, kind: 'rock' }),
+]);
 export const PLAYER_MAX_OXYGEN = 100;
 export const OXYGEN_DRAIN_PER_SEC = 14;
 export const OXYGEN_REGEN_PER_SEC = 24;

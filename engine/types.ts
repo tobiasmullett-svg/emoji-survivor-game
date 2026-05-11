@@ -239,6 +239,7 @@ export interface GameState {
   /** Previous frame water state for enter/exit audio edges. */
   prevInWater: boolean;
   oxygenDamageTimer: number;
+  obstacleBumpTimer: number;
 }
 
 export interface CharacterDef {
@@ -279,7 +280,7 @@ export interface HudData {
   comboCount: number; comboTimer: number; bestCombo: number;
   petCount: number; resourceCount: number;
   phase: GamePhase;
-  equippedWeapons: { emoji: string; evolved: boolean; killCount: number; evolveKills: number; level: number; maxLevel: number }[];
+  equippedWeapons: { id: WeaponId; emoji: string; evolved: boolean; killCount: number; evolveKills: number; level: number; maxLevel: number }[];
   waveModifier?: WaveModifier;
   modifierAnnounceTimer?: number;
   petSynergies?: { kind: PetKind; count: number; bonusPct: number }[];

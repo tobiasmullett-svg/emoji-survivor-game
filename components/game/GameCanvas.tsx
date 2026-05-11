@@ -3,6 +3,7 @@ import { View, Text, StyleSheet } from 'react-native';
 import type { GameState } from '../../engine/types';
 import { ELITE_EMOJIS, ELITE_COLORS } from '../../engine/data';
 import ArenaBackground from './arena/ArenaBackground';
+import WeaponIcon, { hasWeaponIcon } from './WeaponIcon';
 
 interface Props {
   gameState: React.RefObject<GameState | null>;
@@ -50,6 +51,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const showProjectileTrails = !crowded && visibleProjectiles.length < 34;
   const showCritFlash = !crowded && state.hitStop > 0.06;
   const bgFrame = Math.floor(frame / (crowded ? 4 : 3));
+  const visibleWeaponSprites = (p.weapons ?? []).filter(w => hasWeaponIcon(w.id, w.evolved)).slice(0, crowded ? 2 : 4);
 
   return (
     <View style={s.viewport} pointerEvents="none">
@@ -454,13 +456,29 @@ export default function GameCanvas({ gameState, frame }: Props) {
         })}
         {/* Player */}
         <View style={[s.playerWrap, { left: p.x - 24, top: p.y - 32 }]}>
-          {state.inWater && !crowded && <View style={s.playerWaterRing} />}
-          <View style={s.playerAura} />
-          {/* Player ground glow ring */}
-          <View style={[s.playerGroundGlow, {
-            opacity: 0.12 + Math.sin(frame * 0.06) * 0.04,
-          }]} />
-          <View style={s.playerFocusShadow} />
+          {visibleWeaponSprites.map((weapon, i) => {
+            const count = visibleWeaponSprites.length;
+            const angle = frame * 0.025 + i * ((Math.PI * 2) / Math.max(1, count));
+            const radius = 28 + Math.min(8, count * 2);
+            const x = 24 + Math.cos(angle) * radius;
+            const y = 23 + Math.sin(angle) * radius * 0.46;
+            return (
+              <View
+                key={`${weapon.id}-${i}`}
+                style={[
+                  s.playerWeaponSprite,
+                  {
+                    left: x - 14,
+                    top: y - 14,
+                    opacity: 0.78 + Math.sin(frame * 0.08 + i) * 0.08,
+                    transform: [{ rotate: `${angle * 0.4}rad` }, { scale: weapon.evolved ? 1.12 : 1 }],
+                  },
+                ]}
+              >
+                <WeaponIcon id={weapon.id} evolved={weapon.evolved} size={28} />
+              </View>
+            );
+          })}
           <Text style={[s.playerEmoji, p.invulnTimer > 0 && { opacity: 0.5 }]}>{p.emoji}</Text>
           <View style={s.pHpBg}>
             <View style={[s.pHp, { width: `${Math.max(0, (p.hp / p.maxHp) * 100)}%` }]} />
@@ -674,10 +692,7 @@ const s = StyleSheet.create({
   hpBarBg: { width: 30, height: 3, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 2, marginTop: 2 },
   hpBar: { height: 3, backgroundColor: '#EF4444', borderRadius: 2 },
   playerWrap: { position: 'absolute', alignItems: 'center', width: 48 },
-  playerWaterRing: { position: 'absolute', top: 22, width: 58, height: 18, borderRadius: 29, borderWidth: 1, borderColor: 'rgba(125,211,252,0.45)', backgroundColor: 'rgba(14,116,144,0.1)' },
-  playerAura: { position: 'absolute', top: 31, width: 42, height: 10, borderRadius: 21, backgroundColor: 'rgba(45,212,191,0.08)' },
-  playerGroundGlow: { position: 'absolute', top: 24, width: 58, height: 18, borderRadius: 29, backgroundColor: 'rgba(45,212,191,0.055)', borderWidth: 1, borderColor: 'rgba(45,212,191,0.08)' },
-  playerFocusShadow: { position: 'absolute', top: 29, width: 44, height: 12, borderRadius: 22, backgroundColor: 'rgba(2,6,23,0.55)' },
+  playerWeaponSprite: { position: 'absolute', width: 28, height: 28, alignItems: 'center', justifyContent: 'center', zIndex: 1 },
   playerEmoji: { fontSize: 42, textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.95)', textShadowOffset: { width: 0, height: 3 }, textShadowRadius: 7 },
   shieldIcon: { position: 'absolute', top: -5, fontSize: 20 },
   petWrap: { position: 'absolute', alignItems: 'center', justifyContent: 'center' },

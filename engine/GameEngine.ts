@@ -25,7 +25,8 @@ import {
   WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST,
   WEAPON_MAX_LEVEL, WEAPON_LEVEL_DAMAGE_BONUS,
   MAX_HAZARDS, HAZARD_BASE_DAMAGE, HAZARD_RADIUS,
-  WATER_ZONES, PLAYER_MAX_OXYGEN, OXYGEN_DRAIN_PER_SEC, OXYGEN_REGEN_PER_SEC, OXYGEN_DAMAGE_TICK, OXYGEN_DAMAGE_INTERVAL,
+  WATER_ZONES, ARENA_OBSTACLES,
+  PLAYER_MAX_OXYGEN, OXYGEN_DRAIN_PER_SEC, OXYGEN_REGEN_PER_SEC, OXYGEN_DAMAGE_TICK, OXYGEN_DAMAGE_INTERVAL,
 } from './constants';
 
 const ENEMY_DEF_BY_TYPE = new Map(ENEMY_DEFS.map(def => [def.type, def]));
@@ -42,6 +43,63 @@ const PET_DEFS: Record<PetKind, { emoji: string; name: string; damage: number; c
 };
 const PET_MAX_LEVEL = 9;
 const BOSS_EXTRA_TIME = 18;
+
+function isInArenaObstacle(x: number, y: number, radius = 0): boolean {
+  for (const obstacle of ARENA_OBSTACLES) {
+    const rx = obstacle.rx + radius;
+    const ry = obstacle.ry + radius;
+    const nx = (x - obstacle.x) / rx;
+    const ny = (y - obstacle.y) / ry;
+    if (nx * nx + ny * ny < 1) return true;
+  }
+  return false;
+}
+
+function resolveArenaObstacleCollision(x: number, y: number, radius: number): Vec2 {
+  let px = x;
+  let py = y;
+  for (let pass = 0; pass < 2; pass++) {
+    for (const obstacle of ARENA_OBSTACLES) {
+      const rx = obstacle.rx + radius;
+      const ry = obstacle.ry + radius;
+      const nx = (px - obstacle.x) / rx;
+      const ny = (py - obstacle.y) / ry;
+      const d2 = nx * nx + ny * ny;
+      if (d2 >= 1) continue;
+      if (d2 < 0.0001) {
+        px = obstacle.x + rx;
+        py = obstacle.y;
+        continue;
+      }
+      const d = Math.sqrt(d2);
+      px = obstacle.x + (nx / d) * rx;
+      py = obstacle.y + (ny / d) * ry;
+    }
+  }
+  return { x: px, y: py };
+}
+
+function findNearestOpenPoint(state: GameState, x: number, y: number, radius: number): Vec2 {
+  let point = resolveArenaObstacleCollision(x, y, radius);
+  point.x = clamp(point.x, radius, state.arena.width - radius);
+  point.y = clamp(point.y, radius, state.arena.height - radius);
+  if (!isInArenaObstacle(point.x, point.y, radius)) return point;
+  for (let ring = 1; ring <= 4; ring++) {
+    const step = 28 * ring;
+    for (let i = 0; i < 10; i++) {
+      const a = (Math.PI * 2 * i) / 10;
+      const candidate = resolveArenaObstacleCollision(
+        clamp(x + Math.cos(a) * step, radius, state.arena.width - radius),
+        clamp(y + Math.sin(a) * step, radius, state.arena.height - radius),
+        radius,
+      );
+      candidate.x = clamp(candidate.x, radius, state.arena.width - radius);
+      candidate.y = clamp(candidate.y, radius, state.arena.height - radius);
+      if (!isInArenaObstacle(candidate.x, candidate.y, radius)) return candidate;
+    }
+  }
+  return point;
+}
 
 // ═══ PET PERKS ═══
 const PET_PERK_DEFS: Record<PetKind, { level: number; perk: PetPerk }[]> = {
@@ -181,6 +239,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     inWater: false,
     prevInWater: false,
     oxygenDamageTimer: OXYGEN_DAMAGE_INTERVAL,
+    obstacleBumpTimer: 0,
   };
   spawnResourceNodes(state, 5);
   return state;
@@ -294,6 +353,7 @@ function updateCollecting(state: GameState, dt: number, input: Vec2): void {
 // ═══ PLAYER ═══
 function updatePlayer(state: GameState, dt: number, input: Vec2): void {
   const p = state.player;
+  if (state.obstacleBumpTimer > 0) state.obstacleBumpTimer = Math.max(0, state.obstacleBumpTimer - dt);
   const speedPenalty = state.inWater ? 0.84 : 1;
   const speed = p.baseSpeed * p.speedMult * 50 * speedPenalty;
   p.x += input.x * speed * dt;
@@ -301,6 +361,14 @@ function updatePlayer(state: GameState, dt: number, input: Vec2): void {
   // Knockback decay
   if (Math.abs(p.invulnTimer) > 0) {
     p.invulnTimer = Math.max(0, p.invulnTimer - dt);
+  }
+  const resolved = resolveArenaObstacleCollision(p.x, p.y, p.radius);
+  const pushed = Math.abs(resolved.x - p.x) + Math.abs(resolved.y - p.y);
+  p.x = resolved.x;
+  p.y = resolved.y;
+  if (pushed > 0.5 && len(input) > 0.15 && state.obstacleBumpTimer <= 0) {
+    state.obstacleBumpTimer = 0.18;
+    if (state.shake.timer < 0.04) state.shake = { x: 0, y: 0, timer: 0.04, intensity: 1.4 };
   }
   // Clamp to arena
   p.x = clamp(p.x, p.radius, state.arena.width - p.radius);
@@ -434,6 +502,11 @@ function updateEnemies(state: GameState, dt: number): void {
       }
       e.x += nx * e.speed * speedMult * dt;
       e.y += ny * e.speed * speedMult * dt;
+    }
+    if (e.type !== 'ghost') {
+      const resolved = resolveArenaObstacleCollision(e.x, e.y, Math.min(e.radius, 36));
+      e.x = resolved.x;
+      e.y = resolved.y;
     }
     // Clamp
     e.x = clamp(e.x, 5, state.arena.width - 5);
@@ -930,7 +1003,8 @@ function updateDeathParticles(state: GameState, dt: number): void {
 
 function dropPickup(state: GameState, x: number, y: number, type: Pickup['type'], value: number, emoji: string): boolean {
   if (state.pickups.length >= MAX_PICKUPS) return false;
-  state.pickups.push({ id: nid(), x, y, type, value, emoji });
+  const point = findNearestOpenPoint(state, x, y, 12);
+  state.pickups.push({ id: nid(), x: point.x, y: point.y, type, value, emoji });
   return true;
 }
 
@@ -1315,6 +1389,11 @@ function spawnEnemies(state: GameState, dt: number): void {
   }
   sx = clamp(sx, 20, state.arena.width - 20);
   sy = clamp(sy, 20, state.arena.height - 20);
+  if (isInArenaObstacle(sx, sy, chosen.radius * (isBoss ? BOSS_SIZE_MULT : 1))) {
+    const point = findNearestOpenPoint(state, sx, sy, chosen.radius * (isBoss ? BOSS_SIZE_MULT : 1));
+    sx = point.x;
+    sy = point.y;
+  }
 
   const pressure = getThreatPressure(state);
   const hpPressureMult = 1 + pressure * 0.2;
@@ -1329,10 +1408,16 @@ function spawnEnemies(state: GameState, dt: number): void {
     if (aliveCount >= MAX_ENEMIES) break;
     const ox = chosen.type === 'swarmer' ? rng(-30, 30) : 0;
     const oy = chosen.type === 'swarmer' ? rng(-30, 30) : 0;
+    const spawnPoint = findNearestOpenPoint(
+      state,
+      clamp(sx + ox, 20, state.arena.width - 20),
+      clamp(sy + oy, 20, state.arena.height - 20),
+      Math.round(chosen.radius * (isBoss ? BOSS_SIZE_MULT : 1)),
+    );
     const enemy: Enemy = {
       id: nid(), type: chosen.type,
-      x: clamp(sx + ox, 20, state.arena.width - 20),
-      y: clamp(sy + oy, 20, state.arena.height - 20),
+      x: spawnPoint.x,
+      y: spawnPoint.y,
       hp: Math.round(chosen.hp * hpM * (isBoss ? BOSS_HP_MULT : 1)),
       maxHp: Math.round(chosen.hp * hpM * (isBoss ? BOSS_HP_MULT : 1)),
       speed: chosen.speed, damage: Math.round(chosen.damage * dmgM * (isBoss ? BOSS_DMG_MULT : 1)),
@@ -1375,10 +1460,15 @@ function spawnResourceNodes(state: GameState, count: number): void {
     for (let tries = 0; tries < 20; tries++) {
       x = rng(120, state.arena.width - 120);
       y = rng(120, state.arena.height - 120);
-      if (dist({ x, y }, state.player) > 220 && state.resourceNodes.every(n => !n.alive || dist({ x, y }, n) > 110)) break;
+      if (
+        dist({ x, y }, state.player) > 220
+        && !isInArenaObstacle(x, y, def.radius + 10)
+        && state.resourceNodes.every(n => !n.alive || dist({ x, y }, n) > 110)
+      ) break;
     }
+    const point = findNearestOpenPoint(state, x, y, def.radius + 10);
     state.resourceNodes.push({
-      id: nid(), x, y, kind,
+      id: nid(), x: point.x, y: point.y, kind,
       hp: def.hp + state.wave.number * 3,
       maxHp: def.hp + state.wave.number * 3,
       radius: def.radius, emoji: def.emoji, alive: true, flashTimer: 0,
@@ -1791,8 +1881,13 @@ export function activateAbility(state: GameState, input: Vec2): void {
       } else {
         dir = norm(dir);
       }
-      p.x = clamp(p.x + dir.x * dashDist, p.radius, state.arena.width - p.radius);
-      p.y = clamp(p.y + dir.y * dashDist, p.radius, state.arena.height - p.radius);
+      const point = resolveArenaObstacleCollision(
+        clamp(p.x + dir.x * dashDist, p.radius, state.arena.width - p.radius),
+        clamp(p.y + dir.y * dashDist, p.radius, state.arena.height - p.radius),
+        p.radius,
+      );
+      p.x = clamp(point.x, p.radius, state.arena.width - p.radius);
+      p.y = clamp(point.y, p.radius, state.arena.height - p.radius);
       break;
     }
     case 'squid': {
@@ -1836,7 +1931,8 @@ export function extractHudData(state: GameState): HudData {
     comboCount: state.combo.count, comboTimer: state.combo.timer, bestCombo: state.combo.best,
     petCount: state.pets.length, resourceCount: state.resourceNodes.filter(n => n.alive).length,
     phase: state.phase,
-    equippedWeapons: p.weapons.map(w => ({ 
+    equippedWeapons: p.weapons.map(w => ({
+      id: w.id,
       emoji: (w.evolved ? EVOLVED_WEAPONS[w.id] : WEAPONS[w.id])?.emoji ?? '❓',
       evolved: w.evolved,
       killCount: w.killCount,

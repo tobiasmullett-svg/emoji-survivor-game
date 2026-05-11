@@ -3,6 +3,7 @@ import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import type { RunStats } from '../../engine/types';
 import { calculateRunScore } from '../../engine/scoring';
 import { MODIFIER_NAMES } from '../../engine/data';
+import WeaponIcon, { hasWeaponIcon } from './WeaponIcon';
 
 interface Props {
   stats: RunStats | null;
@@ -10,7 +11,7 @@ interface Props {
   materials: number;
   playerEmoji: string;
   victory: boolean;
-  weapons: { emoji: string }[];
+  weapons: { id?: string; emoji: string; evolved?: boolean }[];
   items?: { emoji: string }[];
   achievements?: { name: string; emoji: string; description: string }[];
   onRetry: () => void;
@@ -52,7 +53,11 @@ export default function GameOverOverlay({ stats, waveNum, materials, playerEmoji
             <View style={s.section}>
               <Text style={s.sectionLabel}>Weapons</Text>
               <View style={s.iconRow}>
-                {weapons.map((w, i) => <Text key={i} style={s.weaponEmoji}>{w?.emoji ?? '?'}</Text>)}
+                {weapons.map((w, i) => (
+                  hasWeaponIcon(w?.id, w?.evolved)
+                    ? <WeaponIcon key={i} id={w.id} evolved={w.evolved} size={34} />
+                    : <Text key={i} style={s.weaponEmoji}>{w?.emoji ?? '?'}</Text>
+                ))}
               </View>
             </View>
           )}

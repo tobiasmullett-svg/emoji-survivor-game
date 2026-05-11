@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, Pressable, StyleSheet } from 'react-native';
 import type { HudData } from '../../engine/types';
 import { MODIFIER_NAMES } from '../../engine/data';
+import WeaponIcon, { hasWeaponIcon } from './WeaponIcon';
 
 interface Props { data: HudData; onPause: () => void }
 
@@ -65,7 +66,9 @@ export default function HUD({ data, onPause }: Props) {
           const ready = !w.evolved && w.killCount >= w.evolveKills;
           return (
             <View key={i} style={[s.weaponSlot, w.evolved && s.weaponSlotEvolved, ready && s.weaponSlotReady]}>
-              <Text style={s.weaponEmoji}>{w?.emoji ?? '?'}</Text>
+              {hasWeaponIcon(w.id, w.evolved)
+                ? <WeaponIcon id={w.id} evolved={w.evolved} size={26} style={s.weaponImage} />
+                : <Text style={s.weaponEmoji}>{w?.emoji ?? '?'}</Text>}
               <Text style={s.weaponLevel}>Lv {w.level ?? 1}</Text>
               {!w.evolved && <View style={[s.weaponProgress, { width: `${progress}%` }]} />}
             </View>
@@ -137,6 +140,7 @@ const s = StyleSheet.create({
   weaponSlotReady: { borderColor: '#F59E0B', shadowColor: '#F59E0B', shadowOpacity: 0.6, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
   weaponProgress: { position: 'absolute', left: 0, bottom: 0, height: 3, backgroundColor: '#F59E0B' },
   weaponEmoji: { fontSize: 16, zIndex: 2 },
+  weaponImage: { zIndex: 2 },
   weaponLevel: { position: 'absolute', right: 1, top: 0, color: '#A7F3D0', fontSize: 7, fontWeight: '900', zIndex: 3, textShadowColor: '#000', textShadowRadius: 2 },
   bannerStack: { alignItems: 'center', marginTop: 8, gap: 6 },
   comboPill: { minWidth: 76, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 12, backgroundColor: 'rgba(45,212,191,0.16)', borderWidth: 1, borderColor: 'rgba(45,212,191,0.5)', alignItems: 'center' },
