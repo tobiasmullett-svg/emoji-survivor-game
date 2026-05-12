@@ -2,6 +2,7 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { GameState } from '../../engine/types';
 import { ELITE_EMOJIS, ELITE_COLORS } from '../../engine/data';
+import { PICKUP_BASE_RANGE } from '../../engine/constants';
 import ArenaBackground from './arena/ArenaBackground';
 import WeaponIcon, { hasWeaponIcon } from './WeaponIcon';
 
@@ -27,7 +28,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const state = gameState?.current;
   if (!state) return <View style={s.viewport} />;
 
-  const { player: p, enemies, projectiles, pickups, resourceNodes, pets, dmgNums, effects, deathParticles, hazards, camera, shake, arena, sw, sh } = state;
+  const { player: p, enemies, projectiles, pickups, resourceNodes, pets, dmgNums, effects, deathParticles, hatchAnimations, hazards, camera, shake, arena, sw, sh } = state;
   const tx = -camera.x + sw / 2 + (shake?.x ?? 0);
   const ty = -camera.y + sh / 2 + (shake?.y ?? 0);
   const vMinX = camera.x - sw / 2 - 60;
@@ -101,17 +102,85 @@ export default function GameCanvas({ gameState, frame }: Props) {
         ))}
         {/* Pickups */}
         {visiblePickups.map(pk => {
+          const dx = pk.x - p.x;
+          const dy = pk.y - p.y;
+          const dist = Math.sqrt(dx * dx + dy * dy);
+          const inMagnet = dist < p.pickupRange && dist > 12;
+          const trailColor = pk.type === 'egg' ? 'rgba(251,191,36,0.5)' : pk.type === 'heal' ? 'rgba(34,197,94,0.5)' : 'rgba(45,212,191,0.4)';
           return (
-            <Text
-              key={pk.id}
-              style={[
-                s.entity,
-                s.pickup,
-                { left: pk.x - 8, top: pk.y - 8 + Math.sin((frame + pk.id) * 0.12) * 2, fontSize: 14 },
-              ]}
-            >
-              {pk.emoji}
-            </Text>
+            <React.Fragment key={pk.id}>
+              {inMagnet && !crowded && (
+                <View style={[s.magnetTrail, {
+                  left: pk.x,
+                  top: pk.y,
+                  width: Math.min(dist * 0.6, 30),
+                  backgroundColor: trailColor,
+                  transform: [{ rotate: `${Math.atan2(-dy, -dx)}rad` }],
+                }]} />
+              )}
+              <Text
+                style={[
+                  s.entity,
+                  s.pickup,
+                  { left: pk.x - 8, top: pk.y - 8 + Math.sin((frame + pk.id) * 0.12) * 2, fontSize: 14 },
+                  inMagnet && { transform: [{ scale: 1 + Math.sin(frame * 0.2) * 0.15 }] },
+                ]}
+              >
+                {pk.emoji}
+              </Text>
+            </React.Fragment>
+          );
+        })}
+        {/* Hatch Animations */}
+        {(hatchAnimations ?? []).filter(h => vis(h.x, h.y)).map(h => {
+          const prog = 1 - h.timer / h.maxTimer;
+          // Phase 0-0.4: egg wobbles with increasing intensity
+          // Phase 0.4-0.7: egg cracks, sparks appear
+          // Phase 0.7-1.0: egg explodes, pet emoji scales in
+          const wobble = prog < 0.4
+            ? Math.sin(prog * 80) * (3 + prog * 15)
+            : prog < 0.7
+              ? Math.sin(prog * 120) * (8 + (prog - 0.4) * 20)
+              : 0;
+          const eggOpacity = prog < 0.7 ? 1 : Math.max(0, 1 - (prog - 0.7) / 0.15);
+          const petScale = prog > 0.7 ? Math.min(1.3, (prog - 0.7) / 0.2) : 0;
+          const petOpacity = prog > 0.7 ? Math.min(1, (prog - 0.7) / 0.15) : 0;
+          const crackVisible = prog > 0.35 && prog < 0.75;
+          return (
+            <View key={h.id} style={[s.hatchWrap, { left: h.x - 20, top: h.y - 24 }]}>
+              {/* Glow underneath */}
+              <View style={[s.hatchGlow, {
+                backgroundColor: `${h.petColor}22`,
+                borderColor: `${h.petColor}55`,
+                opacity: prog,
+                transform: [{ scale: 0.8 + prog * 0.8 }],
+              }]} />
+              {/* Egg emoji - wobbling */}
+              {eggOpacity > 0 && (
+                <Text style={[s.hatchEgg, {
+                  opacity: eggOpacity,
+                  transform: [{ translateX: wobble }, { scale: 1 + (prog > 0.5 ? (prog - 0.5) * 0.3 : 0) }],
+                }]}>
+                  {crackVisible ? '🥚' : '🥚'}
+                </Text>
+              )}
+              {/* Crack lines */}
+              {crackVisible && (
+                <View style={[s.hatchCracks, { opacity: (prog - 0.35) * 3 }]}>
+                  <Text style={s.hatchCrackText}>⚡</Text>
+                </View>
+              )}
+              {/* Pet reveal */}
+              {petScale > 0 && (
+                <Text style={[s.hatchPetReveal, {
+                  opacity: petOpacity,
+                  transform: [{ scale: petScale }],
+                  textShadowColor: h.petColor,
+                }]}>
+                  {h.petEmoji}
+                </Text>
+              )}
+            </View>
           );
         })}
         {/* Enemies */}
@@ -743,4 +812,11 @@ const s = StyleSheet.create({
   marker: { position: 'absolute', width: 32, height: 32, borderRadius: 16, borderWidth: 2, backgroundColor: 'rgba(15,23,42,0.78)', alignItems: 'center', justifyContent: 'center', zIndex: 8 },
   markerEmoji: { position: 'absolute', fontSize: 16, textAlign: 'center' },
   markerText: { position: 'absolute', fontSize: 10, color: '#FFF', fontWeight: '900', top: -8, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
+  magnetTrail: { position: 'absolute', height: 3, borderRadius: 2, opacity: 0.6 },
+  hatchWrap: { position: 'absolute', width: 40, height: 48, alignItems: 'center', justifyContent: 'center' },
+  hatchGlow: { position: 'absolute', width: 48, height: 48, borderRadius: 24, borderWidth: 2 },
+  hatchEgg: { fontSize: 28, textAlign: 'center', textShadowColor: 'rgba(251,191,36,0.8)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
+  hatchCracks: { position: 'absolute', top: 2, right: -4 },
+  hatchCrackText: { fontSize: 14, color: '#FBBF24' },
+  hatchPetReveal: { position: 'absolute', fontSize: 30, textAlign: 'center', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 12 },
 });

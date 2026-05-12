@@ -147,6 +147,16 @@ export interface DeathParticle {
   color: string;
 }
 
+export interface HatchAnimation {
+  id: number;
+  x: number; y: number;
+  petEmoji: string;
+  petColor: string;
+  petName: string;
+  timer: number;
+  maxTimer: number;
+}
+
 export interface HazardZone {
   id: number;
   x: number; y: number;
@@ -215,6 +225,7 @@ export interface GameState {
   dmgNums: DmgNum[];
   effects: VisualFx[];
   deathParticles: DeathParticle[];
+  hatchAnimations: HatchAnimation[];
   hazards: HazardZone[];
   wave: WaveState;
   camera: Vec2;

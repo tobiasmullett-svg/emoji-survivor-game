@@ -213,7 +213,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
       abilityActive: false, abilityTimer: 0, invulnTimer: 0, radius: 20,
       oxygen: PLAYER_MAX_OXYGEN, maxOxygen: PLAYER_MAX_OXYGEN,
     },
-    enemies: [], projectiles: [], pickups: [], resourceNodes: [], pets: [], dmgNums: [], effects: [], deathParticles: [], hazards: [],
+    enemies: [], projectiles: [], pickups: [], resourceNodes: [], pets: [], dmgNums: [], effects: [], deathParticles: [], hatchAnimations: [], hazards: [],
     wave: {
       number: 1, timer: getWaveDuration(1), maxTime: getWaveDuration(1),
       spawnTimer: 0.35, spawnInterval: 1.05,
@@ -285,6 +285,7 @@ export function updateGame(state: GameState, dt: number, input: Vec2): void {
   updateDmgNums(state, dt);
   updateEffects(state, dt);
   updateDeathParticles(state, dt);
+  updateHatchAnimations(state, dt);
   updateCombo(state, dt);
   updateShake(state, dt);
   updateWaveTimer(state, dt);
@@ -1260,19 +1261,64 @@ function hatchPet(state: GameState): void {
     return;
   }
   const angle = rng(0, Math.PI * 2);
+  const spawnX = state.player.x + Math.cos(angle) * 42;
+  const spawnY = state.player.y + Math.sin(angle) * 42;
   const petName = generatePetName(kind, 1);
-  const pet: PetCompanion = {
-    id: nid(), kind, x: state.player.x + Math.cos(angle) * 42, y: state.player.y + Math.sin(angle) * 42,
-    emoji: def.emoji, name: petName, color: def.color, generation: 1,
-    attackName: def.attackName, trait: def.trait, traitDesc: def.traitDesc,
-    level: 1, cooldownTimer: rng(0, 0.4), radius: 12, damage: def.damage,
-    attackFlash: 0, action: 'idle', aimAngle: 0,
-    perks: [],
-  };
-  state.pets.push(pet);
-  addDmgNum(state, state.player.x, state.player.y - 42, `${petName} joined!`, def.color);
-  addEffect(state, pet.x, pet.y, 'ring', def.color, 0, 46);
-  addEffect(state, pet.x, pet.y, 'burst', def.color, 0, 38);
+  // Queue a hatch animation instead of instant spawn
+  const HATCH_DURATION = 1.2;
+  state.hatchAnimations.push({
+    id: nid(), x: spawnX, y: spawnY,
+    petEmoji: def.emoji, petColor: def.color, petName,
+    timer: HATCH_DURATION, maxTimer: HATCH_DURATION,
+  });
+  // The pet will be spawned when the animation completes in updateHatchAnimations
+  // Store pending pet data on the animation
+  (state as any)._pendingHatches = (state as any)._pendingHatches ?? [];
+  (state as any)._pendingHatches.push({
+    animId: state.hatchAnimations[state.hatchAnimations.length - 1].id,
+    kind, def, petName, spawnX, spawnY,
+  });
+}
+
+function updateHatchAnimations(state: GameState, dt: number): void {
+  if (state.hatchAnimations.length === 0) return;
+  const completed: number[] = [];
+  for (const h of state.hatchAnimations) {
+    h.timer -= dt;
+    const prog = 1 - h.timer / h.maxTimer;
+    // Add shake effects during the crack phase (40-70%)
+    if (prog > 0.4 && prog < 0.7 && Math.random() < 0.3) {
+      addEffect(state, h.x + rng(-8, 8), h.y + rng(-8, 8), 'spark', '#FBBF24', 0, 6);
+    }
+    if (h.timer <= 0) completed.push(h.id);
+  }
+  // Spawn pets for completed animations
+  const pending: any[] = (state as any)._pendingHatches ?? [];
+  for (const id of completed) {
+    const hatch = state.hatchAnimations.find(ha => ha.id === id);
+    const data = pending.find((p: any) => p.animId === id);
+    if (hatch && data && state.pets.length < MAX_PETS) {
+      const pet: PetCompanion = {
+        id: nid(), kind: data.kind,
+        x: data.spawnX, y: data.spawnY,
+        emoji: data.def.emoji, name: data.petName,
+        color: data.def.color, generation: 1,
+        attackName: data.def.attackName, trait: data.def.trait, traitDesc: data.def.traitDesc,
+        level: 1, cooldownTimer: rng(0, 0.4), radius: 12, damage: data.def.damage,
+        attackFlash: 0, action: 'idle', aimAngle: 0,
+        perks: [],
+      };
+      state.pets.push(pet);
+      addDmgNum(state, hatch.x, hatch.y - 42, `${data.petName} joined!`, data.def.color);
+      addEffect(state, hatch.x, hatch.y, 'ring', data.def.color, 0, 52);
+      addEffect(state, hatch.x, hatch.y, 'burst', data.def.color, 0, 42);
+      playSound('shopBuy');
+    }
+  }
+  if (completed.length > 0) {
+    state.hatchAnimations = state.hatchAnimations.filter(h => !completed.includes(h.id));
+    (state as any)._pendingHatches = pending.filter((p: any) => !completed.includes(p.animId));
+  }
 }
 
 // ═══ EFFECTS ═══
