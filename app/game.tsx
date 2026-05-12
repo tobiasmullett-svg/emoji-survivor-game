@@ -395,8 +395,23 @@ export default function GameScreen() {
     }
   }, [currentRunKey]);
 
-  const handleRetry = useCallback(() => router.replace('/character-select'), [router]);
-  const handleMenu = useCallback(() => router.replace('/'), [router]);
+  const handleRetry = useCallback(() => {
+    const state = gameRef.current;
+    if (state) {
+      const elapsed = Math.round((Date.now() - (state.stats?.startTime ?? Date.now())) / 1000);
+      addRunToProgression(state.wave?.number ?? 0, state.stats?.enemiesKilled ?? 0, elapsed).catch(() => {});
+    }
+    router.replace('/character-select');
+  }, [router]);
+
+  const handleMenu = useCallback(() => {
+    const state = gameRef.current;
+    if (state) {
+      const elapsed = Math.round((Date.now() - (state.stats?.startTime ?? Date.now())) / 1000);
+      addRunToProgression(state.wave?.number ?? 0, state.stats?.enemiesKilled ?? 0, elapsed).catch(() => {});
+    }
+    router.replace('/');
+  }, [router]);
 
   useEffect(() => {
     if (Platform.OS !== 'web') return;
