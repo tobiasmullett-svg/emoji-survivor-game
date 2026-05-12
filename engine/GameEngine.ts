@@ -289,7 +289,7 @@ export function updateGame(state: GameState, dt: number, input: Vec2): void {
   updateShake(state, dt);
   updateWaveTimer(state, dt);
   spawnEnemies(state, dt);
-  updateCamera(state, input);
+  updateCamera(state, input, dt);
   state.cleanupCounter++;
   if (state.cleanupCounter >= 60) { cleanup(state); state.cleanupCounter = 0; }
   checkLevelUp(state);
@@ -339,7 +339,7 @@ function updateCollecting(state: GameState, dt: number, input: Vec2): void {
   }
   checkPickupCollection(state);
   updateDmgNums(state, dt);
-  updateCamera(state, input);
+  updateCamera(state, input, dt);
   state.wave.collectTimer -= dt;
   if (state.wave.collectTimer <= 0) {
     state.pickups = [];
@@ -588,14 +588,15 @@ function updatePets(state: GameState, dt: number): void {
   state.pets.forEach((pet, i) => {
     const orbit = state.time * 2 + i * ((Math.PI * 2) / Math.max(1, state.pets.length));
     const levelScale = 1 + Math.min(0.55, (pet.level - 1) * 0.06);
-    pet.attackFlash = Math.max(0, pet.attackFlash - dt * 3.5);
-    if (pet.attackFlash <= 0) pet.action = 'idle';
+    pet.attackFlash = pet.attackFlash > 0.01 ? pet.attackFlash * Math.pow(0.04, dt) : 0;
+    if (pet.attackFlash <= 0.01) { pet.attackFlash = 0; pet.action = 'idle'; }
     const target = {
       x: p.x + Math.cos(orbit) * (48 + i * 6),
       y: p.y + Math.sin(orbit) * (38 + i * 5),
     };
-    pet.x = lerp(pet.x, target.x, 0.12);
-    pet.y = lerp(pet.y, target.y, 0.12);
+    const petSmooth = 1 - Math.pow(0.0001, dt);
+    pet.x = lerp(pet.x, target.x, petSmooth);
+    pet.y = lerp(pet.y, target.y, petSmooth);
     pet.cooldownTimer = Math.max(0, pet.cooldownTimer - dt);
     if (pet.cooldownTimer > 0) return;
     const def = PET_DEFS[pet.kind];
@@ -1207,6 +1208,48 @@ function updateHazards(state: GameState, dt: number): void {
   state.hazards = state.hazards.filter(h => h.life === undefined || h.life > 0);
 }
 
+const PET_ADJECTIVES: Record<PetKind, string[]> = {
+  snapper: ['Swift', 'Keen', 'Fierce', 'Bold', 'Sharp', 'Wild', 'Quick', 'Brave'],
+  spark: ['Zappy', 'Bright', 'Crackling', 'Vivid', 'Flash', 'Storm', 'Arc', 'Volt'],
+  mender: ['Gentle', 'Calm', 'Warm', 'Kind', 'Soothing', 'Soft', 'Pure', 'Grace'],
+};
+const PET_EVOLVED_NAMES: Record<PetKind, string[]> = {
+  snapper: ['Crimson', 'Fang', 'Razor', 'Predator'],
+  spark: ['Thunder', 'Tempest', 'Nova', 'Plasma'],
+  mender: ['Elder', 'Sage', 'Oracle', 'Tidal'],
+};
+const PET_PRIME_NAMES: Record<PetKind, string[]> = {
+  snapper: ['Primal', 'Apex', 'Leviathan'],
+  spark: ['Stormborn', 'Supernova', 'Celestial'],
+  mender: ['Ancient', 'Abyssal', 'Divine'],
+};
+const PET_EMOJI_BY_GEN: Record<PetKind, string[]> = {
+  snapper: ['🦐', '🦞', '🦈'],
+  spark: ['🪼', '⚡', '🌩️'],
+  mender: ['🐚', '🐠', '🐋'],
+};
+
+function generatePetName(kind: PetKind, generation: number): string {
+  const def = PET_DEFS[kind];
+  if (generation >= 3) {
+    const pool = PET_PRIME_NAMES[kind];
+    return `${pool[rngInt(0, pool.length - 1)]} ${def.name}`;
+  }
+  if (generation >= 2) {
+    const pool = PET_EVOLVED_NAMES[kind];
+    return `${pool[rngInt(0, pool.length - 1)]} ${def.name}`;
+  }
+  const adj = PET_ADJECTIVES[kind];
+  return `${adj[rngInt(0, adj.length - 1)]} ${def.name}`;
+}
+
+function getPetEmoji(kind: PetKind, generation: number): string {
+  const emojis = PET_EMOJI_BY_GEN[kind];
+  if (generation >= 3) return emojis[2];
+  if (generation >= 2) return emojis[1];
+  return emojis[0];
+}
+
 function hatchPet(state: GameState): void {
   const kinds: PetKind[] = ['snapper', 'spark', 'mender'];
   const kind = kinds[rngInt(0, kinds.length - 1)];
@@ -1217,17 +1260,19 @@ function hatchPet(state: GameState): void {
     return;
   }
   const angle = rng(0, Math.PI * 2);
+  const petName = generatePetName(kind, 1);
   const pet: PetCompanion = {
     id: nid(), kind, x: state.player.x + Math.cos(angle) * 42, y: state.player.y + Math.sin(angle) * 42,
-    emoji: def.emoji, name: def.name, color: def.color, generation: 1,
+    emoji: def.emoji, name: petName, color: def.color, generation: 1,
     attackName: def.attackName, trait: def.trait, traitDesc: def.traitDesc,
     level: 1, cooldownTimer: rng(0, 0.4), radius: 12, damage: def.damage,
     attackFlash: 0, action: 'idle', aimAngle: 0,
     perks: [],
   };
   state.pets.push(pet);
-  addDmgNum(state, state.player.x, state.player.y - 42, `${def.name} joined!`, def.color);
+  addDmgNum(state, state.player.x, state.player.y - 42, `${petName} joined!`, def.color);
   addEffect(state, pet.x, pet.y, 'ring', def.color, 0, 46);
+  addEffect(state, pet.x, pet.y, 'burst', def.color, 0, 38);
 }
 
 // ═══ EFFECTS ═══
@@ -1516,14 +1561,16 @@ function spawnResourceNodes(state: GameState, count: number): void {
 }
 
 // ═══ CAMERA ═══
-function updateCamera(state: GameState, input: Vec2): void {
+function updateCamera(state: GameState, input: Vec2, dt: number): void {
   const p = state.player;
   // Lookahead based on movement direction
   const lookaheadDist = 40;
   const targetX = clamp(p.x + input.x * lookaheadDist, state.sw / 2, state.arena.width - state.sw / 2);
   const targetY = clamp(p.y + input.y * lookaheadDist, state.sh / 2, state.arena.height - state.sh / 2);
-  state.camera.x = lerp(state.camera.x, targetX, 0.08);
-  state.camera.y = lerp(state.camera.y, targetY, 0.08);
+  // Frame-rate-independent exponential smoothing
+  const camSmooth = 1 - Math.pow(0.0008, dt);
+  state.camera.x = lerp(state.camera.x, targetX, camSmooth);
+  state.camera.y = lerp(state.camera.y, targetY, camSmooth);
 }
 
 // ═══ CLEANUP ═══
@@ -1825,7 +1872,8 @@ export function fusePets(state: GameState): boolean {
       a.radius = Math.min(20, a.radius + 1.5);
       a.cooldownTimer = 0;
       a.generation = Math.max(a.generation, b.generation) + 1;
-      a.name = a.generation >= 3 ? `Prime ${PET_DEFS[a.kind].name}` : `${PET_DEFS[a.kind].name} II`;
+      a.name = generatePetName(a.kind, a.generation);
+      a.emoji = getPetEmoji(a.kind, a.generation);
       a.attackFlash = 1;
       a.action = 'heal';
       a.perks = getPetPerks(a.kind, a.level);

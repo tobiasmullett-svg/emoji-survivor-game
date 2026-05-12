@@ -577,14 +577,23 @@ export default function GameCanvas({ gameState, frame }: Props) {
           );
         })}
         {/* Damage numbers */}
-        {displayDmgNums.map(d => {
+        {displayDmgNums.map((d, idx) => {
           const prog = 1 - (d.t / d.maxT);
+          const isCrit = d.color === '#F59E0B';
+          // Bounce-in: scale from 0.4 → 1.25 → 1.0 in first 25% of life
+          const bouncePhase = Math.min(1, prog / 0.25);
+          const bounceScale = bouncePhase < 0.5
+            ? 0.4 + bouncePhase * 2 * 0.85   // 0.4 → 1.25
+            : 1.25 - (bouncePhase - 0.5) * 2 * 0.25; // 1.25 → 1.0
+          const critPulse = isCrit ? 1 + Math.sin(prog * Math.PI * 3) * 0.12 : 1;
+          const drift = ((d.id % 7) - 3) * 2.5; // subtle horizontal spread
           return (
             <Text key={d.id} style={[s.dmgNum, {
-              left: d.x - 15, top: d.y - prog * 40,
-              opacity: 1 - prog, color: d.color,
-              fontSize: d.color === '#F59E0B' ? 20 : 16,
-              transform: [{ scale: 1 + (d.color === '#F59E0B' ? 0.3 : 0) * Math.sin(prog * Math.PI) }],
+              left: d.x - 15 + drift, top: d.y - prog * 40,
+              opacity: prog > 0.7 ? 1 - ((prog - 0.7) / 0.3) : 1,
+              color: d.color,
+              fontSize: isCrit ? 20 : 16,
+              transform: [{ scale: bounceScale * critPulse }],
             }]}>{d.text}</Text>
           );
         })}

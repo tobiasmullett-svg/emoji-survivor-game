@@ -246,6 +246,8 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
                 <Text style={s.familyText}>Breeding cost: based on the pair level. Matching twins become one higher-generation child with +2 levels and inherited power.</Text>
                 <Text style={s.familyText}>Perks unlock at Lv.3, 5, and 7. Each pet type gets unique abilities at these milestones.</Text>
                 <Text style={s.familyText}>Synergy: 2+ of the same kind gives all pets of that type a damage bonus.</Text>
+                <Text style={s.familyText}>Breeding evolves emoji: 🦐→🦞→🦈 · 🪼→⚡→🌩️ · 🐚→🐠→🐋</Text>
+                <Text style={[s.familyText, { color: '#FBBF24' }]}>🥚 Egg chance: 💠Crystal 34% · 🪸Coral 22% · 🌿Kelp 14% {player.luck > 0 ? `· 🍀+${(player.luck * 0.15).toFixed(1)}%` : ''}</Text>
               </View>
             )}
             <View style={s.actions}>
