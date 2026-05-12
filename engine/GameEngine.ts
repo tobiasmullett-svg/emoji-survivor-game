@@ -1687,6 +1687,7 @@ function applyEvolution(state: GameState, weaponIndex: number): void {
 export function evolveWeapon(state: GameState, weaponIndex: number): boolean {
   const weapon = state.player.weapons[weaponIndex];
   if (!weapon || weapon.evolved) return false;
+  if ((weapon.level ?? 1) < WEAPON_MAX_LEVEL) return false;
   if (weapon.killCount < WEAPON_EVOLVE_KILLS) return false;
   if (state.materials < WEAPON_EVOLVE_COST) return false;
   state.materials -= WEAPON_EVOLVE_COST;
@@ -1710,7 +1711,7 @@ export function buyShopItem(state: GameState, index: number): boolean {
     // Once a weapon is max level, duplicate buys can still trigger the big
     // evolution if the kill requirement is ready. The shop slot price is the
     // only material cost in this path; we do NOT also charge WEAPON_EVOLVE_COST.
-    if (existing && !existing.evolved && existing.killCount >= WEAPON_EVOLVE_KILLS) {
+    if (existing && !existing.evolved && (existing.level ?? 1) >= WEAPON_MAX_LEVEL && existing.killCount >= WEAPON_EVOLVE_KILLS) {
       state.materials -= slot.price;
       slot.bought = true;
       slot.locked = false;

@@ -61,7 +61,7 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
   const synergies = getPetSynergies(state.pets);
   const readyWeapons = player.weapons
     .map((weapon, index) => ({ weapon, index }))
-    .filter(({ weapon }) => !weapon.evolved && weapon.killCount >= WEAPON_EVOLVE_KILLS);
+    .filter(({ weapon }) => !weapon.evolved && (weapon.level ?? 1) >= WEAPON_MAX_LEVEL && weapon.killCount >= WEAPON_EVOLVE_KILLS);
 
   return (
     <View style={s.overlay}>
@@ -297,7 +297,7 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
             <View style={s.invRow}>
               {(player?.weapons ?? []).map((w, i) => {
                 const progress = w.evolved ? 100 : Math.min(100, (w.killCount / WEAPON_EVOLVE_KILLS) * 100);
-                const ready = !w.evolved && w.killCount >= WEAPON_EVOLVE_KILLS;
+                const ready = !w.evolved && (w.level ?? 1) >= WEAPON_MAX_LEVEL && w.killCount >= WEAPON_EVOLVE_KILLS;
                 return (
                   <View key={i} style={[s.invSlot, w?.evolved && s.invSlotEvolved, ready && s.invSlotReady]}>
                     {hasWeaponIcon(w?.id, w?.evolved)

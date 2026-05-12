@@ -6,10 +6,12 @@ import {
   generateShopItems,
   applyLevelUpChoice,
   buyShopItem,
+  evolveWeapon,
   startNextWave,
   extractHudData,
   resetIdCounter,
 } from '../GameEngine';
+import { WEAPON_EVOLVE_COST, WEAPON_EVOLVE_KILLS, WEAPON_MAX_LEVEL } from '../constants';
 
 jest.mock('../../services/audio', () => ({
   playSound: jest.fn(),
@@ -143,6 +145,30 @@ describe('extractHudData', () => {
 });
 
 describe('weapon shop upgrades', () => {
+  it('does not evolve a weapon until it is max level', () => {
+    const state = initGameState('crab', 800, 600);
+    const weapon = state.player.weapons[0];
+    weapon.killCount = WEAPON_EVOLVE_KILLS;
+    weapon.level = WEAPON_MAX_LEVEL - 1;
+    state.materials = WEAPON_EVOLVE_COST;
+
+    expect(evolveWeapon(state, 0)).toBe(false);
+    expect(weapon.evolved).toBe(false);
+    expect(state.materials).toBe(WEAPON_EVOLVE_COST);
+  });
+
+  it('evolves a max-level weapon with enough kills and materials', () => {
+    const state = initGameState('crab', 800, 600);
+    const weapon = state.player.weapons[0];
+    weapon.killCount = WEAPON_EVOLVE_KILLS;
+    weapon.level = WEAPON_MAX_LEVEL;
+    state.materials = WEAPON_EVOLVE_COST;
+
+    expect(evolveWeapon(state, 0)).toBe(true);
+    expect(weapon.evolved).toBe(true);
+    expect(state.materials).toBe(0);
+  });
+
   it('upgrades an owned duplicate weapon instead of adding a second copy', () => {
     const state = initGameState('crab', 800, 600);
     const startingWeapon = state.player.weapons[0];
