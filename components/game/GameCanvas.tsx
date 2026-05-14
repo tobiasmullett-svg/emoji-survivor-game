@@ -44,6 +44,8 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const visibleEffects = (effects ?? []).filter(fx => vis(fx.x, fx.y));
   const visibleDeathParticles = (deathParticles ?? []).filter(dp => vis(dp.x, dp.y));
   const visibleDmgNums = (dmgNums ?? []).filter(d => vis(d.x, d.y));
+  const relicIds = new Set((state.relics ?? []).map(relic => relic.id));
+  const effectivePickupRange = p.pickupRange * (relicIds.has('abyssalMagnet') ? 1.9 : 1) * (1 + p.luck * 0.01);
   const crowded = state.wave.number >= 5 || visibleEnemies.length + visibleProjectiles.length > 45 || visibleEffects.length + visibleDmgNums.length > 35;
   const displayProjectiles = crowded ? visibleProjectiles.slice(0, 48) : visibleProjectiles;
   const displayEffects = crowded ? visibleEffects.filter(fx => fx.kind !== 'muzzle' && fx.kind !== 'spark').slice(-14) : visibleEffects;
@@ -105,7 +107,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
           const dx = pk.x - p.x;
           const dy = pk.y - p.y;
           const dist = Math.sqrt(dx * dx + dy * dy);
-          const inMagnet = dist < p.pickupRange && dist > 12;
+          const inMagnet = dist < effectivePickupRange && dist > 12;
           const trailColor = pk.type === 'egg' ? 'rgba(251,191,36,0.5)' : pk.type === 'heal' ? 'rgba(34,197,94,0.5)' : 'rgba(45,212,191,0.4)';
           return (
             <React.Fragment key={pk.id}>
@@ -185,8 +187,9 @@ export default function GameCanvas({ gameState, frame }: Props) {
         })}
         {/* Enemies */}
         {visibleEnemies.map(e => {
-          const showTelegraph = e.telegraphTimer > 0 && e.telegraphType === 'attack';
+          const showTelegraph = e.telegraphTimer > 0 && (e.telegraphType === 'attack' || e.telegraphType === 'charge');
           const telegraphProg = showTelegraph ? 1 - (e.telegraphTimer / e.telegraphMax) : 0;
+          const chargeTelegraph = e.telegraphType === 'charge';
           const isElite = e.elite !== 'none';
           const visualFontSize = e.fontSize + (e.isBoss ? 0 : 2);
           return (
@@ -220,9 +223,21 @@ export default function GameCanvas({ gameState, frame }: Props) {
                 }]} />
               )}
               {showTelegraph && (
-                <View style={s.telegraphBarBg}>
-                  <View style={[s.telegraphBar, { width: `${Math.min(100, Math.max(8, telegraphProg * 100))}%` }]} />
+                <View style={[s.telegraphBarBg, chargeTelegraph && s.chargeTelegraphBarBg]}>
+                  <View style={[s.telegraphBar, chargeTelegraph && s.chargeTelegraphBar, { width: `${Math.min(100, Math.max(8, telegraphProg * 100))}%` }]} />
                 </View>
+              )}
+              {chargeTelegraph && (
+                <View style={[
+                  s.chargeWarn,
+                  {
+                    width: e.radius * 4.8,
+                    left: e.radius - e.radius * 2.4,
+                    top: e.radius + 8,
+                    opacity: 0.3 + telegraphProg * 0.45,
+                    transform: [{ rotate: `${Math.atan2(e.chargeVy, e.chargeVx)}rad` }],
+                  },
+                ]} />
               )}
               <Text style={[s.entity, s.enemyEmoji, e.flashTimer > 0 && s.enemyEmojiHit, { fontSize: visualFontSize, opacity: e.flashTimer > 0 ? 0.45 : 1 }]}>
                 {e.isBoss ? '👑' : ''}{e.emoji}
@@ -467,6 +482,26 @@ export default function GameCanvas({ gameState, frame }: Props) {
                   />
                 ))}
               </React.Fragment>
+            );
+          }
+          if (fx.kind === 'smoke') {
+            return (
+              <View
+                key={fx.id}
+                style={[
+                  s.smokeFx,
+                  {
+                    left: fx.x - fx.radius * (0.4 + prog * 0.3),
+                    top: fx.y - fx.radius * (0.4 + prog * 0.3),
+                    width: fx.radius * (0.8 + prog * 0.6),
+                    height: fx.radius * (0.45 + prog * 0.45),
+                    borderRadius: fx.radius,
+                    backgroundColor: fx.color,
+                    opacity: (1 - prog) * 0.18,
+                    transform: [{ rotate: `${fx.angle}rad` }, { scale: 0.9 + prog * 0.8 }],
+                  },
+                ]}
+              />
             );
           }
           if (fx.kind === 'burst') {
@@ -767,6 +802,9 @@ const s = StyleSheet.create({
   eliteAura: { position: 'absolute', borderWidth: 2, backgroundColor: 'transparent' },
   telegraphBarBg: { position: 'absolute', top: -8, width: 24, height: 3, borderRadius: 2, backgroundColor: 'rgba(239,68,68,0.18)', overflow: 'hidden' },
   telegraphBar: { height: 3, borderRadius: 2, backgroundColor: '#EF4444' },
+  chargeTelegraphBarBg: { backgroundColor: 'rgba(56,189,248,0.18)' },
+  chargeTelegraphBar: { backgroundColor: '#38BDF8' },
+  chargeWarn: { position: 'absolute', height: 4, borderRadius: 3, backgroundColor: '#38BDF8', shadowColor: '#38BDF8', shadowOpacity: 0.6, shadowRadius: 8, shadowOffset: { width: 0, height: 0 } },
   hpBarBg: { width: 30, height: 3, backgroundColor: 'rgba(255,255,255,0.15)', borderRadius: 2, marginTop: 2 },
   hpBar: { height: 3, backgroundColor: '#EF4444', borderRadius: 2 },
   playerWrap: { position: 'absolute', alignItems: 'center', width: 48 },
@@ -801,6 +839,7 @@ const s = StyleSheet.create({
   shieldBar: { height: 2, backgroundColor: '#2DD4BF', borderRadius: 1 },
   sparkFx: { position: 'absolute' },
   sparkRay: { position: 'absolute', height: 2, borderRadius: 1 },
+  smokeFx: { position: 'absolute' },
   burstFx: { position: 'absolute', borderWidth: 3, backgroundColor: 'transparent' },
   burstInner: { position: 'absolute' },
   deathParticle: { position: 'absolute', textAlign: 'center', fontWeight: '800' },

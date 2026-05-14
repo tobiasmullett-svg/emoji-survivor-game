@@ -13,12 +13,13 @@ interface Props {
   victory: boolean;
   weapons: { id?: string; emoji: string; evolved?: boolean }[];
   items?: { emoji: string }[];
+  relics?: { emoji: string; name: string }[];
   achievements?: { name: string; emoji: string; description: string }[];
   onRetry: () => void;
   onMenu: () => void;
 }
 
-export default function GameOverOverlay({ stats, waveNum, materials, playerEmoji, victory, weapons, items = [], achievements = [], onRetry, onMenu }: Props) {
+export default function GameOverOverlay({ stats, waveNum, materials, playerEmoji, victory, weapons, items = [], relics = [], achievements = [], onRetry, onMenu }: Props) {
   const endedAtRef = React.useRef(Date.now());
   const elapsed = stats ? Math.round((endedAtRef.current - (stats.startTime ?? endedAtRef.current)) / 1000) : 0;
   const score = calculateRunScore({ wave: waveNum, kills: stats?.enemiesKilled ?? 0, time: elapsed });
@@ -66,6 +67,16 @@ export default function GameOverOverlay({ stats, waveNum, materials, playerEmoji
               <Text style={s.sectionLabel}>Items</Text>
               <View style={s.iconRow}>
                 {items.map((it, i) => <Text key={i} style={s.itemEmoji}>{it?.emoji ?? '?'}</Text>)}
+              </View>
+            </View>
+          )}
+          {relics.length > 0 && (
+            <View style={s.section}>
+              <Text style={s.sectionLabel}>Relics</Text>
+              <View style={s.relicRow}>
+                {relics.map((relic, i) => (
+                  <Text key={i} style={s.relicPill}>{relic.emoji} {relic.name}</Text>
+                ))}
               </View>
             </View>
           )}
@@ -117,6 +128,8 @@ const s = StyleSheet.create({
   itemEmoji: { fontSize: 20 },
   modRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
   modPill: { color: '#F59E0B', fontSize: 11, fontWeight: '700', backgroundColor: 'rgba(245,158,11,0.15)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 3, borderWidth: 1, borderColor: 'rgba(245,158,11,0.3)' },
+  relicRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  relicPill: { color: '#EDE9FE', fontSize: 11, fontWeight: '800', backgroundColor: 'rgba(168,85,247,0.14)', borderRadius: 8, paddingHorizontal: 8, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(168,85,247,0.3)' },
   achievementsBox: { backgroundColor: 'rgba(245,158,11,0.1)', borderRadius: 10, padding: 10, marginBottom: 12, width: '100%', borderWidth: 1, borderColor: 'rgba(245,158,11,0.25)' },
   achievementsTitle: { color: '#F59E0B', fontSize: 12, fontWeight: '800', marginBottom: 6 },
   achievementRow: { color: '#FFF', fontSize: 13, marginBottom: 3 },

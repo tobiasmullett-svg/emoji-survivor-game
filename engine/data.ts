@@ -82,6 +82,7 @@ export const ENEMY_DEFS: EnemyDef[] = [
   { type: 'chaser', emoji: '👾', hp: 28, speed: 72, damage: 6, radius: 16, fontSize: 28, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 46, minWave: 1 },
   { type: 'spitter', emoji: '🦠', hp: 22, speed: 48, damage: 9, radius: 14, fontSize: 26, ranged: true, attackRange: 185, attackCooldown: 1.8, projEmoji: '🟢', spawnWeight: 22, minWave: 3 },
   { type: 'swarmer', emoji: '🐛', hp: 12, speed: 118, damage: 4, radius: 10, fontSize: 20, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 32, minWave: 6 },
+  { type: 'charger', emoji: '🦈', hp: 46, speed: 62, damage: 13, radius: 18, fontSize: 31, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 14, minWave: 7 },
   { type: 'golem', emoji: '🪨', hp: 80, speed: 30, damage: 15, radius: 24, fontSize: 36, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 10, minWave: 10 },
   { type: 'ghost', emoji: '👻', hp: 25, speed: 70, damage: 7, radius: 14, fontSize: 26, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 15, minWave: 13 },
   { type: 'fireElem', emoji: '🔥', hp: 30, speed: 50, damage: 6, radius: 16, fontSize: 28, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 15, minWave: 16 },

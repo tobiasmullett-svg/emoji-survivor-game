@@ -8,7 +8,7 @@ import { Vec2 } from '../engine/math';
 import {
   initGameState, updateGame, extractHudData,
   activateAbility, pauseGame, resumeGame,
-  applyLevelUpChoice, startNextWave,
+  applyLevelUpChoice, applyRelicChoice, startNextWave,
 } from '../engine/GameEngine';
 import { saveHighScore } from '../services/storage';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ITEM_DEFS } from '../engine/data';
@@ -26,6 +26,7 @@ import HUD from '../components/game/HUD';
 import AbilityButton from '../components/game/AbilityButton';
 import PauseOverlay from '../components/game/PauseOverlay';
 import LevelUpModal from '../components/game/LevelUpModal';
+import RelicModal from '../components/game/RelicModal';
 import ShopOverlay from '../components/game/ShopOverlay';
 import GameOverOverlay from '../components/game/GameOverOverlay';
 import Minimap from '../components/game/Minimap';
@@ -37,7 +38,7 @@ const defaultHud: HudData = {
   hp: 100, maxHp: 100, armor: 0, waveNum: 1, waveTimer: 25, waveMaxTime: 25,
   materials: 0, level: 1, xp: 0, xpToNext: 10,
   abilityCd: 0, abilityMaxCd: 30, abilityEmoji: '\u2B50', phase: 'waveAnnounce',
-  comboCount: 0, comboTimer: 0, bestCombo: 0,
+  comboCount: 0, comboTimer: 0, comboMaxTime: 3.2, bestCombo: 0,
   petCount: 0, resourceCount: 0,
   equippedWeapons: [],
 };
@@ -385,6 +386,15 @@ export default function GameScreen() {
     }
   }, [currentRunKey]);
 
+  const handleRelicChoice = useCallback((idx: number) => {
+    const state = gameRef.current;
+    if (state && applyRelicChoice(state, idx)) {
+      phaseRef.current = state.phase;
+      setPhaseState({ runKey: currentRunKey, phase: state.phase });
+      setHudData(extractHudData(state));
+    }
+  }, [currentRunKey]);
+
   const handleNextWave = useCallback(() => {
     const state = gameRef.current;
     if (state) {
@@ -523,6 +533,12 @@ export default function GameScreen() {
           onChoose={handleLevelUp}
         />
       )}
+      {activePhase === 'relic' && (
+        <RelicModal
+          options={state?.relicChoices ?? []}
+          onChoose={handleRelicChoice}
+        />
+      )}
       {activePhase === 'shopping' && (
         <ShopOverlay gameState={gameRef} onNextWave={handleNextWave} />
       )}
@@ -562,6 +578,10 @@ export default function GameScreen() {
           }))}
           items={(state?.player?.items ?? []).map(it => ({
             emoji: ITEM_DEFS.find(d => d.id === it?.id)?.emoji ?? '?',
+          }))}
+          relics={(state?.relics ?? []).map(relic => ({
+            emoji: relic.emoji,
+            name: relic.name,
           }))}
           achievements={runAchievements}
           onRetry={handleRetry}

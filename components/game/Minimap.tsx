@@ -10,7 +10,7 @@ interface Props {
 
 export default function Minimap({ gameState, size = 120 }: Props) {
   const state = gameState.current;
-  if (!state || state.phase === 'gameover' || state.phase === 'paused' || state.phase === 'levelup' || state.phase === 'shopping') {
+  if (!state || state.phase === 'gameover' || state.phase === 'paused' || state.phase === 'levelup' || state.phase === 'relic' || state.phase === 'shopping') {
     return null; // Don't render during menus
   }
 

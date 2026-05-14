@@ -99,8 +99,15 @@ export default function HUD({ data, onPause }: Props) {
           <View style={s.comboPill}>
             <Text style={s.comboText}>{data.comboCount}x</Text>
             <View style={s.comboTimerBg}>
-              <View style={[s.comboTimerFill, { width: `${Math.max(0, Math.min(100, (data.comboTimer / 3.2) * 100))}%` }]} />
+              <View style={[s.comboTimerFill, { width: `${Math.max(0, Math.min(100, (data.comboTimer / Math.max(0.1, data.comboMaxTime ?? 3.2)) * 100))}%` }]} />
             </View>
+          </View>
+        )}
+        {(data?.relics?.length ?? 0) > 0 && (
+          <View style={s.relicPill}>
+            {data.relics!.slice(0, 4).map(relic => (
+              <Text key={relic.id} style={s.relicText}>{relic.emoji}</Text>
+            ))}
           </View>
         )}
         {showModifier && data?.waveModifier && data.waveModifier !== 'none' && (
@@ -165,6 +172,8 @@ const s = StyleSheet.create({
   comboText: { color: '#CCFBF1', fontSize: 15, fontWeight: '900', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 2 },
   comboTimerBg: { width: 54, height: 3, borderRadius: 2, backgroundColor: 'rgba(255,255,255,0.16)', marginTop: 3, overflow: 'hidden' },
   comboTimerFill: { height: 3, borderRadius: 2, backgroundColor: '#2DD4BF' },
+  relicPill: { flexDirection: 'row', gap: 5, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10, backgroundColor: 'rgba(168,85,247,0.14)', borderWidth: 1, borderColor: 'rgba(168,85,247,0.3)' },
+  relicText: { fontSize: 13 },
   objectivePill: { paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10, backgroundColor: 'rgba(15,23,42,0.72)', borderWidth: 1, borderColor: 'rgba(125,211,252,0.22)' },
   objectiveText: { color: '#BAE6FD', fontSize: 11, fontWeight: '800' },
   modifierBanner: { paddingHorizontal: 16, paddingVertical: 6, borderRadius: 12, backgroundColor: 'rgba(245,158,11,0.2)', borderWidth: 1, borderColor: 'rgba(245,158,11,0.5)' },

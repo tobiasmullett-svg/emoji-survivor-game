@@ -2,7 +2,7 @@ import { Vec2, dist, norm, sub, clamp, rng, rngInt, angle2v, v2angle, len, lerp 
 import type {
   GameState, PlayerState, Enemy, Projectile, Pickup, DmgNum, ResourceNode, PetCompanion, PetKind, PetPerk,
   CharacterId, GamePhase, WeaponId, ItemId, Rarity, WeaponState,
-  ShopSlot, LevelUpOption, HudData, WaveState,
+  ShopSlot, LevelUpOption, RelicChoice, RunRelic, RelicId, HudData, WaveState,
 } from './types';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ENEMY_DEFS, ITEM_DEFS, WEAPON_IDS, ELITE_COLORS, ELITE_EMOJIS, MODIFIER_NAMES } from './data';
 import { playSound } from '../services/audio';
@@ -43,6 +43,79 @@ const PET_DEFS: Record<PetKind, { emoji: string; name: string; damage: number; c
 };
 const PET_MAX_LEVEL = 9;
 const BOSS_EXTRA_TIME = 18;
+const RELIC_OFFER_WAVES = [5, 10, 15] as const;
+const CHARGER_MIN_RANGE = 70;
+const CHARGER_MAX_RANGE = 265;
+const CHARGER_TELEGRAPH = 0.56;
+const CHARGER_DASH_TIME = 0.42;
+const CHARGER_COOLDOWN = 2.35;
+
+const RELIC_DEFS: readonly RelicChoice[] = Object.freeze([
+  Object.freeze({
+    id: 'glassTide',
+    emoji: '💎',
+    name: 'Glass Tide',
+    desc: '+32% weapon damage and +8% attack speed.',
+    drawback: '-20 max HP right now.',
+    rarity: 'legendary',
+  }),
+  Object.freeze({
+    id: 'abyssalMagnet',
+    emoji: '🧲',
+    name: 'Abyssal Magnet',
+    desc: '+90% pickup range. XP and loot pathing becomes much safer.',
+    drawback: '-10% movement speed.',
+    rarity: 'rare',
+  }),
+  Object.freeze({
+    id: 'stormCache',
+    emoji: '🌩️',
+    name: 'Storm Cache',
+    desc: '+12% crit chance and every crit has extra hit-stop punch.',
+    drawback: 'Enemies gain +8% health.',
+    rarity: 'rare',
+  }),
+  Object.freeze({
+    id: 'huntersMark',
+    emoji: '🎯',
+    name: "Hunter's Mark",
+    desc: '+22% damage to elites and bosses. Elites drop bonus scrap.',
+    drawback: 'Elite enemies appear more often.',
+    rarity: 'rare',
+  }),
+  Object.freeze({
+    id: 'broodCovenant',
+    emoji: '🥚',
+    name: 'Brood Covenant',
+    desc: '+40% pet damage and eggs are more likely from caches.',
+    drawback: '-12 max HP.',
+    rarity: 'rare',
+  }),
+  Object.freeze({
+    id: 'oxygenDebt',
+    emoji: '🫧',
+    name: 'Oxygen Debt',
+    desc: 'Water no longer slows you. Underwater kills pay extra XP and scrap.',
+    drawback: 'Oxygen drains 35% faster.',
+    rarity: 'uncommon',
+  }),
+  Object.freeze({
+    id: 'salvageOath',
+    emoji: '🔩',
+    name: 'Salvage Oath',
+    desc: 'More caches spawn, caches drop more, and shop prices are 10% cheaper.',
+    drawback: 'Hazards appear even on normal waves.',
+    rarity: 'rare',
+  }),
+  Object.freeze({
+    id: 'comboEngine',
+    emoji: '⚡',
+    name: 'Combo Engine',
+    desc: 'Combos last longer. Every 16x combo releases a chain shockwave.',
+    drawback: 'Enemies move +6% faster.',
+    rarity: 'legendary',
+  }),
+]);
 
 function isInArenaObstacle(x: number, y: number, radius = 0): boolean {
   for (const obstacle of ARENA_OBSTACLES) {
@@ -169,6 +242,55 @@ function getWaveDuration(waveNumber: number): number {
   return WAVE_BASE_TIME + (waveNumber - 1) * WAVE_TIME_INC + (isBossWave(waveNumber) ? BOSS_EXTRA_TIME : 0);
 }
 
+function hasRelic(state: GameState, id: RelicId): boolean {
+  return state.relics.some(relic => relic.id === id);
+}
+
+function shouldOfferRelic(state: GameState): boolean {
+  return (RELIC_OFFER_WAVES as readonly number[]).includes(state.wave.number)
+    && !state.relics.some(relic => relic.wave === state.wave.number);
+}
+
+function getWeaponDamageRelicMult(state: GameState, enemy?: Enemy): number {
+  let mult = 1;
+  if (hasRelic(state, 'glassTide')) mult *= 1.32;
+  if (hasRelic(state, 'huntersMark') && enemy && (enemy.isBoss || enemy.elite !== 'none')) mult *= 1.22;
+  return mult;
+}
+
+function getPetDamageRelicMult(state: GameState, enemy?: Enemy): number {
+  let mult = 1;
+  if (hasRelic(state, 'broodCovenant')) mult *= 1.4;
+  if (hasRelic(state, 'huntersMark') && enemy && (enemy.isBoss || enemy.elite !== 'none')) mult *= 1.16;
+  return mult;
+}
+
+function getPickupRange(state: GameState): number {
+  let range = state.player.pickupRange;
+  if (hasRelic(state, 'abyssalMagnet')) range *= 1.9;
+  return range * (1 + state.player.luck * 0.01);
+}
+
+function getComboDuration(state: GameState): number {
+  return COMBO_TIME + (hasRelic(state, 'comboEngine') ? 1.55 : 0);
+}
+
+function getShopPriceMult(state: GameState): number {
+  return hasRelic(state, 'salvageOath') ? 0.9 : 1;
+}
+
+function getEnemyRelicHpMult(state: GameState): number {
+  return hasRelic(state, 'stormCache') ? 1.08 : 1;
+}
+
+function getEnemyRelicSpeedMult(state: GameState): number {
+  return hasRelic(state, 'comboEngine') ? 1.06 : 1;
+}
+
+function getOxygenDrainMult(state: GameState): number {
+  return hasRelic(state, 'oxygenDebt') ? 1.35 : 1;
+}
+
 // ═══ ID Generator ═══
 let _nid = 1;
 const nid = () => _nid++;
@@ -228,6 +350,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     phase: 'waveAnnounce', prevPhase: 'waveAnnounce',
     stats: { enemiesKilled: 0, damageDealt: 0, damageTaken: 0, materialsCollected: 0, elitesKilled: 0, weaponsEvolved: 0, wasHit: false, startTime: Date.now(), bestCombo: 0, modifiersSeen: [] },
     shopSlots: [], levelUpOptions: [], _levelUpApply: [],
+    relics: [], relicChoices: [],
     rerollCost: REROLL_BASE,
     healCost: HEAL_BASE_COST,
     arena: { width: ARENA_W, height: ARENA_H },
@@ -344,18 +467,27 @@ function updateCollecting(state: GameState, dt: number, input: Vec2): void {
   state.wave.collectTimer -= dt;
   if (state.wave.collectTimer <= 0) {
     state.pickups = [];
-    generateShopItems(state);
-    state.healCost = HEAL_BASE_COST + state.wave.number * HEAL_WAVE_COST;
-    state.rerollCost = REROLL_BASE;
-    state.phase = 'shopping';
+    if (shouldOfferRelic(state)) {
+      generateRelicChoices(state);
+      state.phase = 'relic';
+    } else {
+      enterShopping(state);
+    }
   }
+}
+
+function enterShopping(state: GameState): void {
+  generateShopItems(state);
+  state.healCost = HEAL_BASE_COST + state.wave.number * HEAL_WAVE_COST;
+  state.rerollCost = REROLL_BASE;
+  state.phase = 'shopping';
 }
 
 // ═══ PLAYER ═══
 function updatePlayer(state: GameState, dt: number, input: Vec2): void {
   const p = state.player;
   if (state.obstacleBumpTimer > 0) state.obstacleBumpTimer = Math.max(0, state.obstacleBumpTimer - dt);
-  const speedPenalty = state.inWater ? 0.84 : 1;
+  const speedPenalty = state.inWater && !hasRelic(state, 'oxygenDebt') ? 0.84 : 1;
   const speed = p.baseSpeed * p.speedMult * 50 * speedPenalty;
   p.x += input.x * speed * dt;
   p.y += input.y * speed * dt;
@@ -396,7 +528,7 @@ function updateWaterBreath(state: GameState, dt: number): void {
   if (!now && was) playSound('exitWater');
   state.prevInWater = now;
   if (state.inWater) {
-    p.oxygen = Math.max(0, p.oxygen - OXYGEN_DRAIN_PER_SEC * dt);
+    p.oxygen = Math.max(0, p.oxygen - OXYGEN_DRAIN_PER_SEC * getOxygenDrainMult(state) * dt);
     if (p.oxygen <= 0) {
       state.oxygenDamageTimer -= dt;
       if (state.oxygenDamageTimer <= 0) {
@@ -445,6 +577,19 @@ function updateEnemies(state: GameState, dt: number): void {
     }
     // Flash timer
     if (e.flashTimer > 0) e.flashTimer -= dt;
+    if (e.chargeCooldown > 0) e.chargeCooldown = Math.max(0, e.chargeCooldown - dt);
+    if (e.chargeTimer > 0) {
+      e.x += e.chargeVx * dt;
+      e.y += e.chargeVy * dt;
+      e.chargeTimer = Math.max(0, e.chargeTimer - dt);
+      if (rng(0, 1) < 0.18) addEffect(state, e.x, e.y, 'smoke', '#38BDF8', v2angle({ x: e.chargeVx, y: e.chargeVy }), e.radius * 1.2);
+      const resolved = resolveArenaObstacleCollision(e.x, e.y, Math.min(e.radius, 36));
+      e.x = resolved.x;
+      e.y = resolved.y;
+      e.x = clamp(e.x, 5, state.arena.width - 5);
+      e.y = clamp(e.y, 5, state.arena.height - 5);
+      continue;
+    }
     // Telegraph timer
     if (e.telegraphTimer > 0) {
       e.telegraphTimer -= dt;
@@ -464,6 +609,10 @@ function updateEnemies(state: GameState, dt: number): void {
           }
         }
         e.telegraphType = 'none';
+      } else if (e.telegraphTimer <= 0 && e.telegraphType === 'charge') {
+        e.chargeTimer = CHARGER_DASH_TIME;
+        e.chargeCooldown = CHARGER_COOLDOWN;
+        e.telegraphType = 'none';
       }
       continue; // Don't move while telegraphing
     }
@@ -475,10 +624,22 @@ function updateEnemies(state: GameState, dt: number): void {
     const eDef = ENEMY_DEF_BY_TYPE.get(e.type);
     if (!eDef) continue;
     
+    if (e.type === 'charger' && e.chargeCooldown <= 0 && d > CHARGER_MIN_RANGE && d < CHARGER_MAX_RANGE) {
+      const dir = norm({ x: dx, y: dy });
+      const chargeSpeed = (330 + state.wave.number * 5) * getEnemyRelicSpeedMult(state);
+      e.chargeVx = dir.x * chargeSpeed;
+      e.chargeVy = dir.y * chargeSpeed;
+      e.telegraphTimer = CHARGER_TELEGRAPH;
+      e.telegraphMax = CHARGER_TELEGRAPH;
+      e.telegraphType = 'charge';
+      addEffect(state, e.x, e.y, 'ring', '#38BDF8', 0, e.radius * 2);
+      continue;
+    }
+    
     // Apply modifier speed changes
-    let speedMult = 1;
-    if (state.waveModifier === 'doubleSpeed') speedMult = 1.5;
-    if (state.waveModifier === 'armored') speedMult = 0.75;
+    let speedMult = getEnemyRelicSpeedMult(state);
+    if (state.waveModifier === 'doubleSpeed') speedMult *= 1.5;
+    if (state.waveModifier === 'armored') speedMult *= 0.75;
     
     // Ranged enemies stop at range
     if (eDef.ranged && d < eDef.attackRange) {
@@ -641,7 +802,7 @@ function updatePets(state: GameState, dt: number): void {
     addEffect(state, pet.x, pet.y, pet.kind === 'spark' ? 'beam' : 'muzzle', def.color, pet.aimAngle, pet.kind === 'spark' ? Math.min(attackRange, dist(pet, nearest)) : 18);
     if (pet.kind === 'spark') addEffect(state, nearest.x, nearest.y, 'zap', def.color, 0, 24 + pet.level * 2);
     if (pet.kind === 'snapper' && pet.level >= 4) addEffect(state, pet.x, pet.y, 'slash', def.color, pet.aimAngle, 24 + pet.level * 2);
-    const baseDmg = pet.damage * p.damageMult * (1 + (pet.level - 1) * 0.32) * synergyMult;
+    const baseDmg = pet.damage * p.damageMult * (1 + (pet.level - 1) * 0.32) * synergyMult * getPetDamageRelicMult(state, nearest);
     const projSpeed = pet.kind === 'snapper' ? 420 : 360;
     const shotCount = hasPerk(pet, 'snap_double') ? 2 : 1;
     for (let si = 0; si < shotCount; si++) {
@@ -729,7 +890,7 @@ function fireMelee(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSta
     const d = dist(p, e);
     if (d <= wDef.range + e.radius) {
       const strikeMult = ws.evolved ? Math.max(1, wDef.projCount) : 1;
-      const dmg = wDef.damage * p.damageMult * weaponPowerMult(ws) * strikeMult;
+      const dmg = wDef.damage * p.damageMult * weaponPowerMult(ws) * strikeMult * getWeaponDamageRelicMult(state, e);
       const isCrit = rng(0, 100) < p.critChance;
       dealDamage(state, e, isCrit ? dmg * 2 : dmg, isCrit, ws);
     }
@@ -737,7 +898,7 @@ function fireMelee(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSta
   for (const node of state.resourceNodes) {
     if (!node.alive) continue;
     if (dist(p, node) <= wDef.range + node.radius) {
-      dealNodeDamage(state, node, wDef.damage * p.damageMult * weaponPowerMult(ws));
+      dealNodeDamage(state, node, wDef.damage * p.damageMult * weaponPowerMult(ws) * getWeaponDamageRelicMult(state));
     }
   }
 }
@@ -796,7 +957,7 @@ function fireSpecial(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponS
     else break;
   }
   for (const t of targets) {
-    const dmg = wDef.damage * p.damageMult * weaponPowerMult(ws);
+    const dmg = wDef.damage * p.damageMult * weaponPowerMult(ws) * getWeaponDamageRelicMult(state, t);
     const isCrit = rng(0, 100) < p.critChance;
     dealDamage(state, t, isCrit ? dmg * 2 : dmg, isCrit, ws);
     addEffect(state, t.x, t.y, 'zap', '#A78BFA', 0, 36);
@@ -837,8 +998,9 @@ function dealDamage(state: GameState, enemy: Enemy, dmg: number, isCrit: boolean
   
   // Hit stop on crits
   if (isCrit) {
-    state.hitStop = Math.max(state.hitStop, CRIT_HIT_STOP);
+    state.hitStop = Math.max(state.hitStop, CRIT_HIT_STOP * (hasRelic(state, 'stormCache') ? 1.35 : 1));
     addEffect(state, enemy.x, enemy.y, 'spark', '#F59E0B', rng(0, Math.PI * 2), 20);
+    if (hasRelic(state, 'stormCache')) addEffect(state, enemy.x, enemy.y, 'zap', '#A78BFA', 0, enemy.radius * 1.8);
   }
   
   // Knockback
@@ -881,13 +1043,14 @@ function destroyResourceNode(state: GameState, node: ResourceNode): void {
   if (!node.alive) return;
   node.alive = false;
   const def = RESOURCE_NODE_DEFS[node.kind];
-  const count = rngInt(def.mats[0], def.mats[1]);
+  const salvageBonus = hasRelic(state, 'salvageOath') ? 1.35 : 1;
+  const count = Math.max(1, Math.round(rngInt(def.mats[0], def.mats[1]) * salvageBonus));
   addEffect(state, node.x, node.y, 'ring', '#2DD4BF', 0, 44);
   addDmgNum(state, node.x, node.y - 38, node.kind === 'crystal' ? 'cache!' : 'harvest!', '#2DD4BF');
   for (let i = 0; i < count; i++) {
     dropPickup(state, node.x + rng(-26, 26), node.y + rng(-26, 26), 'material', 1, node.kind === 'crystal' ? '🪙' : '🔩');
   }
-  const eggChance = node.kind === 'crystal' ? 34 : node.kind === 'coral' ? 22 : 14;
+  const eggChance = (node.kind === 'crystal' ? 34 : node.kind === 'coral' ? 22 : 14) + (hasRelic(state, 'broodCovenant') ? 12 : 0);
   if (rng(0, 100) < eggChance + state.player.luck * 0.15) {
     dropPickup(state, node.x + rng(-18, 18), node.y + rng(-18, 18), 'egg', 1, '🥚');
   }
@@ -899,7 +1062,7 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   if (enemy.elite !== 'none') state.stats.elitesKilled++;
   state.wave.enemiesKilled++;
   state.combo.count++;
-  state.combo.timer = COMBO_TIME;
+  state.combo.timer = getComboDuration(state);
   state.combo.best = Math.max(state.combo.best, state.combo.count);
   state.stats.bestCombo = state.combo.best;
   
@@ -957,6 +1120,15 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
     addDmgNum(state, enemy.x, enemy.y - 36, `${state.combo.count}x combo`, '#2DD4BF');
     dropPickup(state, enemy.x + rng(-14, 14), enemy.y + rng(-14, 14), 'material', Math.max(2, Math.floor(state.combo.count / COMBO_BONUS_STEP)), '🪙');
   }
+  if (hasRelic(state, 'comboEngine') && state.combo.count % (COMBO_BONUS_STEP * 2) === 0) {
+    triggerComboSurge(state, enemy.x, enemy.y);
+  }
+  if (hasRelic(state, 'huntersMark') && enemy.elite !== 'none') {
+    addDmgNum(state, enemy.x, enemy.y - 54, 'bounty', '#FBBF24');
+    for (let i = 0; i < 4; i++) {
+      if (!dropPickup(state, enemy.x + rng(-18, 18), enemy.y + rng(-18, 18), 'material', 1, '🪙')) break;
+    }
+  }
   
   // Weapon kill tracking for evolution. Only credit the actual killing weapon.
   if (sourceWeapon && !sourceWeapon.evolved) {
@@ -980,8 +1152,8 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   let matCount = (enemy.isBoss ? rngInt(20, 50) : rngInt(1, 3)) * richMult;
   let xpCount = enemy.isBoss ? rngInt(5, 10) : rngInt(1, 2);
   if (deep && !enemy.isBoss) {
-    matCount += rngInt(1, 2);
-    xpCount += 1;
+    matCount += rngInt(1, 2) + (hasRelic(state, 'oxygenDebt') ? 2 : 0);
+    xpCount += hasRelic(state, 'oxygenDebt') ? 2 : 1;
     addDmgNum(state, enemy.x, enemy.y - 48, 'deep bonus', '#38BDF8');
   }
   const harvestBonus = 1 + state.player.harvesting * 0.05;
@@ -990,6 +1162,21 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   }
   for (let i = 0; i < xpCount; i++) {
     if (!dropPickup(state, enemy.x + rng(-20, 20), enemy.y + rng(-20, 20), 'xp', enemy.isBoss ? 5 : 1, '💎')) break;
+  }
+}
+
+function triggerComboSurge(state: GameState, x: number, y: number): void {
+  const radius = 125;
+  const dmg = 12 + state.wave.number * 2 + state.combo.count * 0.25;
+  addDmgNum(state, x, y - 62, 'chain surge', '#A78BFA');
+  addEffect(state, x, y, 'ring', '#A78BFA', 0, radius);
+  addEffect(state, x, y, 'burst', '#A78BFA', 0, 62);
+  playSound('crit');
+  for (const e of state.enemies) {
+    if (!e.alive) continue;
+    if (dist({ x, y }, e) <= radius + e.radius) {
+      dealDamage(state, e, dmg * state.player.damageMult, false);
+    }
   }
 }
 
@@ -1066,7 +1253,8 @@ function checkProjectileHits(state: GameState): void {
         if (dist(proj, e) < e.radius + proj.radius) {
           const isCrit = rng(0, 100) < p.critChance;
           const sourceWeapon = proj.sourceWeaponIndex !== undefined ? p.weapons[proj.sourceWeaponIndex] : undefined;
-          dealDamage(state, e, isCrit ? proj.damage * 2 : proj.damage, isCrit, sourceWeapon);
+          const relicDamage = sourceWeapon ? proj.damage * getWeaponDamageRelicMult(state, e) : proj.damage;
+          dealDamage(state, e, isCrit ? relicDamage * 2 : relicDamage, isCrit, sourceWeapon);
           if (proj.piercing) {
             proj.hitIds.push(e.id);
           } else {
@@ -1079,7 +1267,8 @@ function checkProjectileHits(state: GameState): void {
       for (const node of state.resourceNodes) {
         if (!node.alive) continue;
         if (dist(proj, node) < node.radius + proj.radius) {
-          dealNodeDamage(state, node, proj.damage);
+          const sourceWeapon = proj.sourceWeaponIndex !== undefined ? p.weapons[proj.sourceWeaponIndex] : undefined;
+          dealNodeDamage(state, node, sourceWeapon ? proj.damage * getWeaponDamageRelicMult(state) : proj.damage);
           proj.life = 0;
           break;
         }
@@ -1099,6 +1288,7 @@ function checkEnemyPlayerHits(state: GameState): void {
       const dodgeRoll = rng(0, 100);
       if (dodgeRoll >= p.dodge) {
         let dmg = Math.max(1, Math.round(e.damage - p.armor));
+        if (e.chargeTimer > 0) dmg = Math.round(dmg * 1.35);
         if (state.waveModifier === 'hazardous') dmg = Math.round(dmg * 1.4);
         p.hp -= dmg;
         p.invulnTimer = INVULN_TIME;
@@ -1124,7 +1314,7 @@ function checkEnemyPlayerHits(state: GameState): void {
 // ═══ PICKUPS ═══
 function updatePickups(state: GameState, dt: number): void {
   const p = state.player;
-  const range = p.pickupRange * (1 + p.luck * 0.01);
+  const range = getPickupRange(state);
   for (const pk of state.pickups) {
     const d = dist(p, pk);
     if (d < range) {
@@ -1429,7 +1619,7 @@ const ELITE_TOTAL_WEIGHT = ELITE_WEIGHTS.reduce((s, [, w]) => s + w, 0);
 
 function rollElite(state: GameState): string {
   if (state.wave.number < 3) return 'none';
-  const chance = ELITE_CHANCE_BASE + (state.wave.number - 3) * ELITE_CHANCE_WAVE;
+  const chance = ELITE_CHANCE_BASE + (state.wave.number - 3) * ELITE_CHANCE_WAVE + (hasRelic(state, 'huntersMark') ? 0.07 : 0);
   if (rng(0, 1) > Math.min(chance, 0.35)) return 'none';
   let roll = rng(0, ELITE_TOTAL_WEIGHT);
   for (const [kind, weight] of ELITE_WEIGHTS) {
@@ -1527,7 +1717,7 @@ function spawnEnemies(state: GameState, dt: number): void {
   const pressure = getThreatPressure(state);
   const hpPressureMult = 1 + pressure * 0.2;
   const dmgPressureMult = 1 + pressure * 0.13;
-  const hpM = (1.18 + (state.wave.number - 1) * ENEMY_HP_SCALE) * hpPressureMult * (state.waveModifier === 'armored' ? 1.45 : 1);
+  const hpM = (1.18 + (state.wave.number - 1) * ENEMY_HP_SCALE) * hpPressureMult * getEnemyRelicHpMult(state) * (state.waveModifier === 'armored' ? 1.45 : 1);
   const dmgM = (1.08 + (state.wave.number - 1) * ENEMY_DMG_SCALE) * dmgPressureMult * (state.waveModifier === 'hazardous' ? 1.12 : 1);
   const baseSwarmerCount = state.waveModifier === 'swarm' ? 6 : 4;
   const swarmerPressureBonus = pressure >= 0.8 ? 1 : 0;
@@ -1560,6 +1750,7 @@ function spawnEnemies(state: GameState, dt: number): void {
       elite: 'none',
       shieldHp: 0, maxShieldHp: 0,
       telegraphTimer: 0, telegraphMax: 0, telegraphType: 'none',
+      chargeTimer: 0, chargeCooldown: chosen.type === 'charger' ? rng(0.35, 1.2) : 0, chargeVx: 0, chargeVy: 0,
       fireTrailTimer: chosen.type === 'fireElem' ? rng(0.2, 1.0) : 0,
     };
     if (isBoss) {
@@ -1726,6 +1917,61 @@ export function applyLevelUpChoice(state: GameState, index: number): void {
   state.phase = 'playing';
 }
 
+export function generateRelicChoices(state: GameState): void {
+  const owned = new Set(state.relics.map(relic => relic.id));
+  const available = RELIC_DEFS.filter(relic => !owned.has(relic.id));
+  state.relicChoices = shuffle(available).slice(0, 3);
+}
+
+function applyRelicImmediateEffect(state: GameState, relic: RunRelic): void {
+  const p = state.player;
+  switch (relic.id) {
+    case 'glassTide':
+      p.maxHp = Math.max(1, p.maxHp - 20);
+      p.hp = Math.min(p.hp, p.maxHp);
+      p.attackSpeedMult = Math.min(STAT_CAPS.attackSpeedMult, p.attackSpeedMult + 0.08);
+      break;
+    case 'abyssalMagnet':
+      p.speedMult = Math.max(0.65, p.speedMult - 0.1);
+      break;
+    case 'stormCache':
+      p.critChance = Math.min(STAT_CAPS.critChance, p.critChance + 12);
+      break;
+    case 'huntersMark':
+      p.luck += 3;
+      break;
+    case 'broodCovenant':
+      p.maxHp = Math.max(1, p.maxHp - 12);
+      p.hp = Math.min(p.hp, p.maxHp);
+      break;
+    case 'oxygenDebt':
+      p.maxOxygen += 20;
+      p.oxygen = p.maxOxygen;
+      break;
+    case 'salvageOath':
+      state.materials += 15;
+      state.stats.materialsCollected += 15;
+      break;
+    case 'comboEngine':
+      p.attackSpeedMult = Math.min(STAT_CAPS.attackSpeedMult, p.attackSpeedMult + 0.05);
+      break;
+  }
+  addDmgNum(state, p.x, p.y - 54, `${relic.emoji} ${relic.name}`, '#FBBF24');
+  addEffect(state, p.x, p.y, 'burst', '#FBBF24', 0, 78);
+  playSound('evolve');
+}
+
+export function applyRelicChoice(state: GameState, index: number): boolean {
+  const choice = state.relicChoices[index];
+  if (!choice) return false;
+  const relic: RunRelic = { ...choice, wave: state.wave.number };
+  state.relics.push(relic);
+  state.relicChoices = [];
+  applyRelicImmediateEffect(state, relic);
+  enterShopping(state);
+  return true;
+}
+
 // ═══ DEATH ═══
 function checkDeath(state: GameState): void {
   if (state.player.hp <= 0) {
@@ -1740,11 +1986,12 @@ export function generateShopItems(state: GameState): void {
   const lockedSlots = state.shopSlots.filter(slot => slot.locked && !slot.bought).slice(0, 4);
   state.shopSlots = [...lockedSlots];
   const waveInf = 1 + state.wave.number * PRICE_INFLATION;
+  const priceMult = getShopPriceMult(state);
   while (state.shopSlots.length < 4) {
     const isWeapon = rng(0, 1) < 0.4;
     const rarity = rollRarity(state.player.luck);
     const baseP = BASE_PRICES[rarity] ?? 10;
-    const price = Math.round(baseP * waveInf);
+    const price = Math.max(1, Math.round(baseP * waveInf * priceMult));
     if (isWeapon) {
       const wId = WEAPON_IDS[rngInt(0, WEAPON_IDS.length - 1)];
       const wDef = WEAPONS[wId];
@@ -1985,10 +2232,11 @@ export function startNextWave(state: GameState): void {
   state.hazards = [];
   state.combo.count = 0;
   state.combo.timer = 0;
-  const nodeBonus = state.waveModifier === 'rich' ? 3 : 0;
+  const nodeBonus = (state.waveModifier === 'rich' ? 3 : 0) + (hasRelic(state, 'salvageOath') ? 2 : 0);
   spawnResourceNodes(state, 2 + Math.floor(state.wave.number / 3) + nodeBonus);
-  if (state.waveModifier === 'hazardous') {
-    spawnHazards(state, 5 + Math.floor(state.wave.number / 2));
+  if (state.waveModifier === 'hazardous' || hasRelic(state, 'salvageOath')) {
+    const baseHazards = state.waveModifier === 'hazardous' ? 5 + Math.floor(state.wave.number / 2) : 2 + Math.floor(state.wave.number / 5);
+    spawnHazards(state, baseHazards);
   }
   state.phase = 'waveAnnounce';
 }
@@ -2064,7 +2312,7 @@ export function extractHudData(state: GameState): HudData {
     materials: state.materials, level: p.level, xp: p.xp, xpToNext: p.xpToNext,
     abilityCd: p.abilityCooldown, abilityMaxCd: p.abilityMaxCooldown,
     abilityEmoji: cDef?.abilityEmoji ?? '⭐',
-    comboCount: state.combo.count, comboTimer: state.combo.timer, bestCombo: state.combo.best,
+    comboCount: state.combo.count, comboTimer: state.combo.timer, comboMaxTime: getComboDuration(state), bestCombo: state.combo.best,
     petCount: state.pets.length, resourceCount: state.resourceNodes.filter(n => n.alive).length,
     phase: state.phase,
     equippedWeapons: p.weapons.map(w => ({
@@ -2076,6 +2324,7 @@ export function extractHudData(state: GameState): HudData {
       level: w.level ?? 1,
       maxLevel: WEAPON_MAX_LEVEL,
     })),
+    relics: state.relics.map(relic => ({ id: relic.id, emoji: relic.emoji, name: relic.name })),
     waveModifier: state.waveModifier,
     modifierAnnounceTimer: state.modifierAnnounceTimer,
     petSynergies: getPetSynergies(state.pets),

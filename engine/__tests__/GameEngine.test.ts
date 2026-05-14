@@ -5,6 +5,7 @@ import {
   generateLevelUpChoices,
   generateShopItems,
   applyLevelUpChoice,
+  applyRelicChoice,
   buyShopItem,
   evolveWeapon,
   startNextWave,
@@ -129,6 +130,41 @@ describe('updateGame', () => {
       updateGame(state, 1 / 60, { x: 0, y: 0 });
     }
     expect(state.phase).toBe('playing');
+  });
+
+  it('offers a relic after a boss wave collection phase', () => {
+    const state = initGameState('crab', 800, 600);
+    state.phase = 'collecting';
+    state.wave.number = 5;
+    state.wave.collectTimer = 0.01;
+
+    updateGame(state, 0.02, { x: 0, y: 0 });
+
+    expect(state.phase).toBe('relic');
+    expect(state.relicChoices).toHaveLength(3);
+    expect(state.shopSlots).toHaveLength(0);
+  });
+});
+
+describe('relic choices', () => {
+  it('applies a relic and then opens the shop', () => {
+    const state = initGameState('crab', 800, 600);
+    const startingMaxHp = state.player.maxHp;
+    state.wave.number = 5;
+    state.relicChoices = [{
+      id: 'glassTide',
+      emoji: '💎',
+      name: 'Glass Tide',
+      desc: '+32% weapon damage and +8% attack speed.',
+      drawback: '-20 max HP right now.',
+      rarity: 'legendary',
+    }];
+
+    expect(applyRelicChoice(state, 0)).toBe(true);
+    expect(state.relics).toHaveLength(1);
+    expect(state.player.maxHp).toBe(startingMaxHp - 20);
+    expect(state.phase).toBe('shopping');
+    expect(state.shopSlots).toHaveLength(4);
   });
 });
 

@@ -1,13 +1,22 @@
 import type { Vec2 } from './math';
 
 export type CharacterId = 'crab' | 'octopus' | 'squid';
-export type GamePhase = 'waveAnnounce' | 'playing' | 'collecting' | 'shopping' | 'levelup' | 'paused' | 'gameover';
-export type EnemyType = 'chaser' | 'spitter' | 'swarmer' | 'golem' | 'ghost' | 'fireElem';
+export type GamePhase = 'waveAnnounce' | 'playing' | 'collecting' | 'shopping' | 'levelup' | 'relic' | 'paused' | 'gameover';
+export type EnemyType = 'chaser' | 'spitter' | 'swarmer' | 'golem' | 'ghost' | 'fireElem' | 'charger';
 export type WeaponId = 'stick' | 'sword' | 'claw' | 'pistol' | 'smg' | 'shotgun' | 'crossbow' | 'lightning';
 export type ItemId = 'heart' | 'sneakers' | 'muscles' | 'shield' | 'clover' | 'energyDrink' | 'scope' | 'magnet' | 'piggyBank';
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary';
 export type ResourceNodeKind = 'coral' | 'kelp' | 'crystal';
 export type PetKind = 'snapper' | 'spark' | 'mender';
+export type RelicId =
+  | 'glassTide'
+  | 'abyssalMagnet'
+  | 'stormCache'
+  | 'huntersMark'
+  | 'broodCovenant'
+  | 'oxygenDebt'
+  | 'salvageOath'
+  | 'comboEngine';
 
 export interface PlayerState {
   x: number; y: number;
@@ -59,6 +68,10 @@ export interface Enemy {
   telegraphTimer: number;
   telegraphMax: number;
   telegraphType: 'none' | 'attack' | 'charge';
+  chargeTimer: number;
+  chargeCooldown: number;
+  chargeVx: number;
+  chargeVy: number;
   fireTrailTimer: number;
 }
 
@@ -212,6 +225,19 @@ export interface LevelUpOption {
   index: number;
 }
 
+export interface RelicChoice {
+  id: RelicId;
+  emoji: string;
+  name: string;
+  desc: string;
+  drawback: string;
+  rarity: Rarity;
+}
+
+export interface RunRelic extends RelicChoice {
+  wave: number;
+}
+
 export type EliteModifier = 'fast' | 'tanky' | 'explosive' | 'vampiric' | 'shielded' | 'none';
 export type WaveModifier = 'none' | 'denseFog' | 'doubleSpeed' | 'armored' | 'rich' | 'hazardous' | 'swarm' | 'elite';
 
@@ -238,6 +264,8 @@ export interface GameState {
   shopSlots: ShopSlot[];
   levelUpOptions: LevelUpOption[];
   _levelUpApply: Array<(p: PlayerState) => void>;
+  relics: RunRelic[];
+  relicChoices: RelicChoice[];
   rerollCost: number;
   healCost: number;
   arena: { width: number; height: number };
@@ -290,10 +318,11 @@ export interface HudData {
   waveNum: number; waveTimer: number; waveMaxTime: number;
   materials: number; level: number; xp: number; xpToNext: number;
   abilityCd: number; abilityMaxCd: number; abilityEmoji: string;
-  comboCount: number; comboTimer: number; bestCombo: number;
+  comboCount: number; comboTimer: number; comboMaxTime: number; bestCombo: number;
   petCount: number; resourceCount: number;
   phase: GamePhase;
   equippedWeapons: { id: WeaponId; emoji: string; evolved: boolean; killCount: number; evolveKills: number; level: number; maxLevel: number }[];
+  relics?: { id: RelicId; emoji: string; name: string }[];
   waveModifier?: WaveModifier;
   modifierAnnounceTimer?: number;
   petSynergies?: { kind: PetKind; count: number; bonusPct: number }[];
