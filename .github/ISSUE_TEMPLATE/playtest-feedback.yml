@@ -1,0 +1,67 @@
+name: Playtest feedback
+description: Share how a run felt and what would make the game better.
+title: "[Playtest]: "
+labels:
+  - playtest
+  - feedback
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for testing Emoji Survivor. The best feedback is specific: what happened, how it felt, and what you expected instead.
+  - type: input
+    id: build
+    attributes:
+      label: Build or link tested
+      description: Paste the Vercel URL or mention the version you played.
+      placeholder: https://emoji-survivor-game.vercel.app
+    validations:
+      required: true
+  - type: dropdown
+    id: device
+    attributes:
+      label: Device
+      options:
+        - Desktop browser
+        - Mobile browser
+        - Tablet browser
+        - iOS app build
+        - Android app build
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome on Windows, Safari on iPhone, Firefox on macOS
+  - type: input
+    id: run
+    attributes:
+      label: Character, wave, and score
+      placeholder: Crab, wave 8, 12,400 score
+  - type: textarea
+    id: fun
+    attributes:
+      label: What felt fun?
+      description: Moments, upgrades, enemies, pacing, controls, visuals, or anything that clicked.
+    validations:
+      required: true
+  - type: textarea
+    id: friction
+    attributes:
+      label: What felt confusing, boring, unfair, or too easy?
+      description: Include anything that made you want to stop playing.
+    validations:
+      required: true
+  - type: textarea
+    id: ideas
+    attributes:
+      label: Suggestions
+      description: Any changes that would make another run more interesting.
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots or clips
+      description: Drag screenshots, clips, or notes here if useful.
+

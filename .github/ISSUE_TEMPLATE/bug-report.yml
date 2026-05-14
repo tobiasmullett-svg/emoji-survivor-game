@@ -1,0 +1,61 @@
+name: Bug report
+description: Report a crash, broken UI, save problem, or gameplay bug.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: input
+    id: build
+    attributes:
+      label: Build or link tested
+      placeholder: https://emoji-survivor-game.vercel.app
+    validations:
+      required: true
+  - type: dropdown
+    id: severity
+    attributes:
+      label: Severity
+      options:
+        - Blocks play
+        - Major gameplay issue
+        - Minor gameplay issue
+        - Visual/UI issue
+        - Performance issue
+    validations:
+      required: true
+  - type: input
+    id: device
+    attributes:
+      label: Device, browser, and OS
+      placeholder: Chrome on Windows, Safari on iPhone, Firefox on macOS
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open the game
+        2. Start a crab run
+        3. Choose ...
+        4. See ...
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual result
+    validations:
+      required: true
+  - type: textarea
+    id: media
+    attributes:
+      label: Screenshots, clips, or console errors
+      description: Drag files here if useful.
+

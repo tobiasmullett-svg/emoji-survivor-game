@@ -1,0 +1,6 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Play the latest web beta
+    url: https://emoji-survivor-game.vercel.app
+    about: Try the current public build before leaving feedback.
+

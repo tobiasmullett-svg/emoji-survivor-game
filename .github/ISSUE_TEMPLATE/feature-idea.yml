@@ -1,0 +1,43 @@
+name: Feature idea
+description: Suggest a character, weapon, enemy, relic, mode, or quality-of-life improvement.
+title: "[Idea]: "
+labels:
+  - enhancement
+body:
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Character
+        - Weapon
+        - Enemy
+        - Relic or upgrade
+        - Boss or wave
+        - Controls
+        - UI/HUD
+        - Progression
+        - Performance
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: pitch
+    attributes:
+      label: Idea
+      description: What should change or be added?
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why would this make runs better?
+      description: Explain the player decision, risk, reward, or feeling it adds.
+    validations:
+      required: true
+  - type: textarea
+    id: balance
+    attributes:
+      label: Balance notes
+      description: Any drawbacks, numbers, unlock timing, or ways to avoid making it overpowered.
+
