@@ -1,7 +1,12 @@
 import { Link } from 'expo-router';
 import { View, Text, StyleSheet } from 'react-native';
+import MainMenu from './index';
 
 export default function NotFoundScreen() {
+  if (typeof window !== 'undefined' && window.location.hostname === 'html-classic.itch.zone') {
+    return <MainMenu />;
+  }
+
   return (
     <View style={s.container}>
       <Text style={s.emoji}>🦀</Text>
