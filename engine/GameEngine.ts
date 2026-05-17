@@ -1,8 +1,8 @@
 import { Vec2, dist, norm, sub, clamp, rng, rngInt, angle2v, v2angle, len, lerp } from './math';
 import type {
   GameState, PlayerState, Enemy, Projectile, Pickup, DmgNum, ResourceNode, PetCompanion, PetKind, PetPerk,
-  CharacterId, GamePhase, WeaponId, ItemId, Rarity, WeaponState,
-  ShopSlot, LevelUpOption, RelicChoice, RunRelic, RelicId, HudData, WaveState,
+  CharacterId, GamePhase, WeaponId, ItemId, Rarity, WeaponState, EliteModifier,
+  ShopSlot, LevelUpOption, RelicChoice, RunRelic, RelicId, HudData, WaveState, PendingHatch,
 } from './types';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ENEMY_DEFS, ITEM_DEFS, WEAPON_IDS, ELITE_COLORS, ELITE_EMOJIS, MODIFIER_NAMES } from './data';
 import { playSound } from '../services/audio';
@@ -335,7 +335,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
       abilityActive: false, abilityTimer: 0, invulnTimer: 0, radius: 20,
       oxygen: PLAYER_MAX_OXYGEN, maxOxygen: PLAYER_MAX_OXYGEN,
     },
-    enemies: [], projectiles: [], pickups: [], resourceNodes: [], pets: [], dmgNums: [], effects: [], deathParticles: [], hatchAnimations: [], hazards: [],
+    enemies: [], projectiles: [], pickups: [], resourceNodes: [], pets: [], dmgNums: [], effects: [], deathParticles: [], hatchAnimations: [], pendingHatches: [], hazards: [],
     wave: {
       number: 1, timer: getWaveDuration(1), maxTime: getWaveDuration(1),
       spawnTimer: 0.35, spawnInterval: 1.05,
@@ -1461,12 +1461,9 @@ function hatchPet(state: GameState): void {
     petEmoji: def.emoji, petColor: def.color, petName,
     timer: HATCH_DURATION, maxTimer: HATCH_DURATION,
   });
-  // The pet will be spawned when the animation completes in updateHatchAnimations
-  // Store pending pet data on the animation
-  (state as any)._pendingHatches = (state as any)._pendingHatches ?? [];
-  (state as any)._pendingHatches.push({
+  state.pendingHatches.push({
     animId: state.hatchAnimations[state.hatchAnimations.length - 1].id,
-    kind, def, petName, spawnX, spawnY,
+    kind, name: petName, spawnX, spawnY,
   });
 }
 
@@ -1476,38 +1473,36 @@ function updateHatchAnimations(state: GameState, dt: number): void {
   for (const h of state.hatchAnimations) {
     h.timer -= dt;
     const prog = 1 - h.timer / h.maxTimer;
-    // Add shake effects during the crack phase (40-70%)
     if (prog > 0.4 && prog < 0.7 && Math.random() < 0.3) {
       addEffect(state, h.x + rng(-8, 8), h.y + rng(-8, 8), 'spark', '#FBBF24', 0, 6);
     }
     if (h.timer <= 0) completed.push(h.id);
   }
-  // Spawn pets for completed animations
-  const pending: any[] = (state as any)._pendingHatches ?? [];
   for (const id of completed) {
     const hatch = state.hatchAnimations.find(ha => ha.id === id);
-    const data = pending.find((p: any) => p.animId === id);
+    const data = state.pendingHatches.find(p => p.animId === id);
     if (hatch && data && state.pets.length < MAX_PETS) {
+      const def = PET_DEFS[data.kind];
       const pet: PetCompanion = {
         id: nid(), kind: data.kind,
         x: data.spawnX, y: data.spawnY,
-        emoji: data.def.emoji, name: data.petName,
-        color: data.def.color, generation: 1,
-        attackName: data.def.attackName, trait: data.def.trait, traitDesc: data.def.traitDesc,
-        level: 1, cooldownTimer: rng(0, 0.4), radius: 12, damage: data.def.damage,
+        emoji: def.emoji, name: data.name,
+        color: def.color, generation: 1,
+        attackName: def.attackName, trait: def.trait, traitDesc: def.traitDesc,
+        level: 1, cooldownTimer: rng(0, 0.4), radius: 12, damage: def.damage,
         attackFlash: 0, action: 'idle', aimAngle: 0,
         perks: [],
       };
       state.pets.push(pet);
-      addDmgNum(state, hatch.x, hatch.y - 42, `${data.petName} joined!`, data.def.color);
-      addEffect(state, hatch.x, hatch.y, 'ring', data.def.color, 0, 52);
-      addEffect(state, hatch.x, hatch.y, 'burst', data.def.color, 0, 42);
+      addDmgNum(state, hatch.x, hatch.y - 42, `${data.name} joined!`, def.color);
+      addEffect(state, hatch.x, hatch.y, 'ring', def.color, 0, 52);
+      addEffect(state, hatch.x, hatch.y, 'burst', def.color, 0, 42);
       playSound('shopBuy');
     }
   }
   if (completed.length > 0) {
     state.hatchAnimations = state.hatchAnimations.filter(h => !completed.includes(h.id));
-    (state as any)._pendingHatches = pending.filter((p: any) => !completed.includes(p.animId));
+    state.pendingHatches = state.pendingHatches.filter(p => !completed.includes(p.animId));
   }
 }
 
@@ -1608,7 +1603,7 @@ function endWave(state: GameState): void {
 
 // Weighted: vampiric and shielded are noticeably nastier than the rest,
 // so they're rarer. Fast and explosive stay common for variety.
-const ELITE_WEIGHTS: ReadonlyArray<readonly [string, number]> = [
+const ELITE_WEIGHTS: ReadonlyArray<readonly [EliteModifier, number]> = [
   ['fast', 30],
   ['explosive', 25],
   ['tanky', 20],
@@ -1617,7 +1612,7 @@ const ELITE_WEIGHTS: ReadonlyArray<readonly [string, number]> = [
 ];
 const ELITE_TOTAL_WEIGHT = ELITE_WEIGHTS.reduce((s, [, w]) => s + w, 0);
 
-function rollElite(state: GameState): string {
+function rollElite(state: GameState): EliteModifier {
   if (state.wave.number < 3) return 'none';
   const chance = ELITE_CHANCE_BASE + (state.wave.number - 3) * ELITE_CHANCE_WAVE + (hasRelic(state, 'huntersMark') ? 0.07 : 0);
   if (rng(0, 1) > Math.min(chance, 0.35)) return 'none';
@@ -1629,8 +1624,7 @@ function rollElite(state: GameState): string {
   return 'fast';
 }
 
-function applyEliteStats(enemy: Enemy, elite: string): void {
-  enemy.elite = elite as any;
+function applyEliteStats(enemy: Enemy, elite: EliteModifier): void {
   switch (elite) {
     case 'fast':
       enemy.speed *= 1.6;
@@ -1688,7 +1682,7 @@ function spawnEnemies(state: GameState, dt: number): void {
   }
 
   // Elite check
-  let elite = 'none';
+  let elite: EliteModifier = 'none';
   if (!isBoss && state.waveModifier === 'elite') {
     elite = rng(0, 1) < 0.6 ? rollElite(state) : 'none';
   } else if (!isBoss) {

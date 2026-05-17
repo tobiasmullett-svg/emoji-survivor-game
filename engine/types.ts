@@ -170,6 +170,14 @@ export interface HatchAnimation {
   maxTimer: number;
 }
 
+export interface PendingHatch {
+  animId: number;
+  kind: PetKind;
+  name: string;
+  spawnX: number;
+  spawnY: number;
+}
+
 export interface HazardZone {
   id: number;
   x: number; y: number;
@@ -252,6 +260,7 @@ export interface GameState {
   effects: VisualFx[];
   deathParticles: DeathParticle[];
   hatchAnimations: HatchAnimation[];
+  pendingHatches: PendingHatch[];
   hazards: HazardZone[];
   wave: WaveState;
   camera: Vec2;
