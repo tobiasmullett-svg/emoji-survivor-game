@@ -1,7 +1,13 @@
 // Achievement system with in-run and persistent tracking
+// Now scoped per player profile.
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getActiveProfileId } from '../services/storage';
 
-const ACHIEVEMENTS_KEY = 'emoji_survivor_achievements';
+const LEGACY_KEY = 'emoji_survivor_achievements';
+
+function profileKey(profileId: string): string {
+  return `emoji_survivor_achievements_${profileId}`;
+}
 
 export interface Achievement {
   id: string;
@@ -46,9 +52,21 @@ export const ACHIEVEMENTS: Achievement[] = [
   { id: 'untouchable', name: 'Untouchable', description: 'Reach wave 5 without taking damage', emoji: '🛡️', condition: s => s.wave >= 5 && s.noHitRun },
 ];
 
-export async function getAchievementProgress(): Promise<Record<string, AchievementProgress>> {
+/**
+ * Resolve the storage key for achievement data.
+ * If a profileId is provided, use it directly.
+ * Otherwise, look up the active profile. Falls back to legacy key.
+ */
+async function resolveKey(overrideProfileId?: string): Promise<string> {
+  if (overrideProfileId) return profileKey(overrideProfileId);
+  const activeId = await getActiveProfileId();
+  return activeId ? profileKey(activeId) : LEGACY_KEY;
+}
+
+export async function getAchievementProgress(overrideProfileId?: string): Promise<Record<string, AchievementProgress>> {
   try {
-    const raw = await AsyncStorage.getItem(ACHIEVEMENTS_KEY);
+    const key = await resolveKey(overrideProfileId);
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return {};
     return JSON.parse(raw);
   } catch {
@@ -56,8 +74,9 @@ export async function getAchievementProgress(): Promise<Record<string, Achieveme
   }
 }
 
-export async function checkAchievements(stats: AchievementStats): Promise<Achievement[]> {
-  const progress = await getAchievementProgress();
+export async function checkAchievements(stats: AchievementStats, overrideProfileId?: string): Promise<Achievement[]> {
+  const key = await resolveKey(overrideProfileId);
+  const progress = await getAchievementProgress(overrideProfileId);
   const newlyUnlocked: Achievement[] = [];
   
   for (const ach of ACHIEVEMENTS) {
@@ -69,7 +88,7 @@ export async function checkAchievements(stats: AchievementStats): Promise<Achiev
   }
   
   if (newlyUnlocked.length > 0) {
-    await AsyncStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify(progress));
+    await AsyncStorage.setItem(key, JSON.stringify(progress));
   }
   
   return newlyUnlocked;
@@ -92,10 +111,11 @@ export function checkAchievementsLive(stats: AchievementStats, alreadyUnlocked: 
 
 // Persist a list of newly unlocked achievements without re-evaluating
 // conditions. Safe to call repeatedly; re-unlocking is a no-op.
-export async function persistUnlockedAchievements(achievements: Achievement[]): Promise<void> {
+export async function persistUnlockedAchievements(achievements: Achievement[], overrideProfileId?: string): Promise<void> {
   if (achievements.length === 0) return;
   try {
-    const progress = await getAchievementProgress();
+    const key = await resolveKey(overrideProfileId);
+    const progress = await getAchievementProgress(overrideProfileId);
     let changed = false;
     for (const a of achievements) {
       if (!progress[a.id]?.unlocked) {
@@ -103,13 +123,13 @@ export async function persistUnlockedAchievements(achievements: Achievement[]): 
         changed = true;
       }
     }
-    if (changed) await AsyncStorage.setItem(ACHIEVEMENTS_KEY, JSON.stringify(progress));
+    if (changed) await AsyncStorage.setItem(key, JSON.stringify(progress));
   } catch {
     // Silently fail
   }
 }
 
-export async function getUnlockedAchievements(): Promise<Achievement[]> {
-  const progress = await getAchievementProgress();
+export async function getUnlockedAchievements(overrideProfileId?: string): Promise<Achievement[]> {
+  const progress = await getAchievementProgress(overrideProfileId);
   return ACHIEVEMENTS.filter(a => progress[a.id]?.unlocked);
 }

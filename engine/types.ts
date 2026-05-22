@@ -350,4 +350,8 @@ export interface HighScore {
   wave: number; kills: number;
   score: number;
   date: string; time: number;
+  /** Player profile name (added in profile system update) */
+  profileName?: string;
+  /** Player profile avatar emoji */
+  profileEmoji?: string;
 }

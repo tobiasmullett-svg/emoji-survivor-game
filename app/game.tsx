@@ -10,7 +10,7 @@ import {
   activateAbility, pauseGame, resumeGame,
   applyLevelUpChoice, applyRelicChoice, startNextWave,
 } from '../engine/GameEngine';
-import { saveHighScore } from '../services/storage';
+import { saveHighScore, getActiveProfile, updateProfile } from '../services/storage';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ITEM_DEFS } from '../engine/data';
 import { playSound, resumeAudio, setGameAmbient, stopGameAmbient } from '../services/audio';
 import { addRunToProgression, getProgression } from '../engine/progression';
@@ -279,11 +279,27 @@ export default function GameScreen() {
         const kills = state.stats?.enemiesKilled ?? 0;
         const score = calculateRunScore({ wave, kills, time: elapsed });
         
-        saveHighScore({
-          emoji: state.player?.emoji ?? cDef?.emoji ?? '?', name: cDef?.name ?? 'Unknown',
-          wave, kills, score,
-          date: new Date().toLocaleDateString(), time: elapsed,
-        }).catch(() => {});
+        // Fetch active profile, then save high score with profile data
+        getActiveProfile().then(activeProfile => {
+          saveHighScore({
+            emoji: state.player?.emoji ?? cDef?.emoji ?? '?', name: cDef?.name ?? 'Unknown',
+            wave, kills, score,
+            date: new Date().toLocaleDateString(), time: elapsed,
+            ...(activeProfile ? { profileName: activeProfile.name, profileEmoji: activeProfile.emoji } : {}),
+          }).catch(() => {});
+
+          // Update profile lastPlayedAt
+          if (activeProfile) {
+            updateProfile(activeProfile.id, { lastPlayedAt: new Date().toISOString() }).catch(() => {});
+          }
+        }).catch(() => {
+          // Fallback: save without profile data
+          saveHighScore({
+            emoji: state.player?.emoji ?? cDef?.emoji ?? '?', name: cDef?.name ?? 'Unknown',
+            wave, kills, score,
+            date: new Date().toLocaleDateString(), time: elapsed,
+          }).catch(() => {});
+        });
         
         // Add to progression
         addRunToProgression(wave, kills, elapsed).catch(() => {});

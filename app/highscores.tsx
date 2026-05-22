@@ -51,6 +51,12 @@ export default function HighScoresScreen() {
                 <Text style={s.rank}>#{index + 1}</Text>
                 <Text style={s.rowEmoji}>{item?.emoji ?? '?'}</Text>
                 <View style={s.rowInfo}>
+                  {item?.profileName ? (
+                    <View style={s.profileRow}>
+                      {item.profileEmoji ? <Text style={s.profileEmoji}>{item.profileEmoji}</Text> : null}
+                      <Text style={s.profileName}>{item.profileName}</Text>
+                    </View>
+                  ) : null}
                   <Text style={s.rowName}>{item?.name ?? 'Unknown'}</Text>
                   <Text style={s.rowSub}>Wave {item?.wave ?? 0} {'\u00B7'} {item?.kills ?? 0} kills {'\u00B7'} {formatTime(item?.time ?? 0)}</Text>
                 </View>
@@ -92,6 +98,9 @@ const s = StyleSheet.create({
   rank: { color: '#F59E0B', fontSize: 16, fontWeight: '800', width: 32 },
   rowEmoji: { fontSize: 28, marginRight: 10 },
   rowInfo: { flex: 1 },
+  profileRow: { flexDirection: 'row', alignItems: 'center', marginBottom: 2 },
+  profileEmoji: { fontSize: 13, marginRight: 4 },
+  profileName: { color: '#14B8A6', fontSize: 12, fontWeight: '700' },
   rowName: { color: '#FFF', fontSize: 15, fontWeight: '600' },
   rowSub: { color: '#94A3B8', fontSize: 13, marginTop: 2 },
   scoreBox: { alignItems: 'flex-end', marginLeft: 8 },

@@ -1,9 +1,15 @@
 // Meta-progression system — persistent unlocks between runs
+// Now scoped per player profile.
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { CharacterId } from './types';
 import { CHARACTER_SKINS, getAllSkins, getDefaultSkinId, getSkinById, type CharacterSkin } from './skins';
+import { getActiveProfileId } from '../services/storage';
 
-const PROGRESSION_KEY = 'emoji_survivor_progression';
+const LEGACY_KEY = 'emoji_survivor_progression';
+
+function profileKey(profileId: string): string {
+  return `emoji_survivor_progression_${profileId}`;
+}
 
 export interface ProgressionData {
   pearls: number;
@@ -86,9 +92,21 @@ function normalizeProgression(data: StoredProgression = {}): ProgressionData {
   };
 }
 
-export async function getProgression(): Promise<ProgressionData> {
+/**
+ * Resolve the storage key for progression data.
+ * If a profileId is provided, use it directly.
+ * Otherwise, look up the active profile. Falls back to legacy key.
+ */
+async function resolveKey(overrideProfileId?: string): Promise<string> {
+  if (overrideProfileId) return profileKey(overrideProfileId);
+  const activeId = await getActiveProfileId();
+  return activeId ? profileKey(activeId) : LEGACY_KEY;
+}
+
+export async function getProgression(overrideProfileId?: string): Promise<ProgressionData> {
   try {
-    const raw = await AsyncStorage.getItem(PROGRESSION_KEY);
+    const key = await resolveKey(overrideProfileId);
+    const raw = await AsyncStorage.getItem(key);
     if (!raw) return normalizeProgression();
     const parsed = JSON.parse(raw) as StoredProgression;
     return normalizeProgression(parsed);
@@ -97,9 +115,10 @@ export async function getProgression(): Promise<ProgressionData> {
   }
 }
 
-export async function saveProgression(data: ProgressionData): Promise<void> {
+export async function saveProgression(data: ProgressionData, overrideProfileId?: string): Promise<void> {
   try {
-    await AsyncStorage.setItem(PROGRESSION_KEY, JSON.stringify(data));
+    const key = await resolveKey(overrideProfileId);
+    await AsyncStorage.setItem(key, JSON.stringify(data));
   } catch {
     // Silently fail
   }
@@ -129,15 +148,15 @@ export function unlockEarnedSkins(prog: ProgressionData): CharacterSkin[] {
   return newlyUnlocked;
 }
 
-export async function refreshProgressionUnlocks(): Promise<ProgressionData> {
-  const prog = await getProgression();
+export async function refreshProgressionUnlocks(overrideProfileId?: string): Promise<ProgressionData> {
+  const prog = await getProgression(overrideProfileId);
   unlockEarnedSkins(prog);
-  await saveProgression(prog);
+  await saveProgression(prog, overrideProfileId);
   return prog;
 }
 
-export async function addRunToProgression(wave: number, kills: number, time: number): Promise<ProgressionData> {
-  const prog = await getProgression();
+export async function addRunToProgression(wave: number, kills: number, time: number, overrideProfileId?: string): Promise<ProgressionData> {
+  const prog = await getProgression(overrideProfileId);
   prog.totalRuns++;
   prog.totalKills += kills;
   prog.totalWaves += wave;
@@ -153,7 +172,7 @@ export async function addRunToProgression(wave: number, kills: number, time: num
   }
   unlockEarnedSkins(prog);
   
-  await saveProgression(prog);
+  await saveProgression(prog, overrideProfileId);
   return prog;
 }
 

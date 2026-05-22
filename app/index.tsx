@@ -3,6 +3,8 @@ import { View, Text, StyleSheet, Animated, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { getActiveProfile } from '../services/storage';
+import type { PlayerProfile } from '../engine/profileTypes';
 
 const HEROES = ['🦀', '🐙', '🦑'];
 const MENU_SPARKS = Array.from({ length: 22 }, (_, i) => ({
@@ -16,6 +18,24 @@ export default function MainMenu() {
   const router = useRouter();
   const [heroIdx, setHeroIdx] = useState(0);
   const scaleAnim = useRef(new Animated.Value(1)).current;
+  const [activeProfile, setActiveProfile] = useState<PlayerProfile | null>(null);
+  const [profileChecked, setProfileChecked] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    getActiveProfile().then(profile => {
+      if (cancelled) return;
+      if (!profile) {
+        router.replace('/profile-select');
+      } else {
+        setActiveProfile(profile);
+        setProfileChecked(true);
+      }
+    }).catch(() => {
+      if (!cancelled) setProfileChecked(true);
+    });
+    return () => { cancelled = true; };
+  }, [router]);
 
   useEffect(() => {
     const interval = setInterval(() => setHeroIdx(i => (i + 1) % 3), 2000);
@@ -29,6 +49,8 @@ export default function MainMenu() {
     return () => { clearInterval(interval); pulse.stop(); };
   }, [scaleAnim]);
 
+  if (!profileChecked) return null;
+
   return (
     <LinearGradient colors={['#030712', '#08111F', '#102018']} style={StyleSheet.absoluteFill}>
       {MENU_SPARKS.map(spark => (
@@ -38,6 +60,12 @@ export default function MainMenu() {
         />
       ))}
       <SafeAreaView style={s.safe}>
+        {activeProfile && (
+          <View style={s.profileBadge}>
+            <Text style={s.profileBadgeEmoji}>{activeProfile.emoji}</Text>
+            <Text style={s.profileBadgeName}>{activeProfile.name}</Text>
+          </View>
+        )}
         <Text style={s.wave}>🌊🌊🌊</Text>
         <Text style={s.title}>EMOJI{"\n"}SURVIVOR</Text>
         <Animated.Text style={[s.hero, { transform: [{ scale: scaleAnim }] }]}>
@@ -80,6 +108,20 @@ export default function MainMenu() {
         >
           <Text style={s.btnTextSec}>⚙️ SETTINGS</Text>
         </Pressable>
+        <Pressable
+          onPress={() => router.push('/profile-detail')}
+          style={({ pressed }) => [s.btn, s.btnSecondary, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button" accessibilityLabel="My Profile"
+        >
+          <Text style={s.btnTextSec}>👤 MY PROFILE</Text>
+        </Pressable>
+        <Pressable
+          onPress={() => router.push('/profile-select')}
+          style={({ pressed }) => [s.btn, s.btnSecondary, pressed && { opacity: 0.7 }]}
+          accessibilityRole="button" accessibilityLabel="Switch Profile"
+        >
+          <Text style={s.btnTextSec}>🔄 SWITCH PROFILE</Text>
+        </Pressable>
         <Text style={s.version}>v1.0.0</Text>
       </SafeAreaView>
     </LinearGradient>
@@ -99,4 +141,7 @@ const s = StyleSheet.create({
   btnSecondary: { borderWidth: 1, borderColor: 'rgba(45,212,191,0.22)', paddingVertical: 16, alignItems: 'center', borderRadius: 14, backgroundColor: 'rgba(255,255,255,0.035)' },
   btnTextSec: { color: '#94A3B8', fontSize: 16, fontWeight: '600' },
   version: { color: 'rgba(255,255,255,0.2)', fontSize: 12, position: 'absolute', bottom: 20 },
+  profileBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(15,25,60,0.7)', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 6, marginBottom: 12, borderWidth: 1, borderColor: 'rgba(100,150,255,0.12)' },
+  profileBadgeEmoji: { fontSize: 20, marginRight: 6 },
+  profileBadgeName: { color: '#CBD5E1', fontSize: 14, fontWeight: '600' },
 });
