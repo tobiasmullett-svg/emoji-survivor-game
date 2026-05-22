@@ -422,20 +422,12 @@ export default function GameScreen() {
   }, [currentRunKey]);
 
   const handleRetry = useCallback(() => {
-    const state = gameRef.current;
-    if (state) {
-      const elapsed = Math.round((Date.now() - (state.stats?.startTime ?? Date.now())) / 1000);
-      addRunToProgression(state.wave?.number ?? 0, state.stats?.enemiesKilled ?? 0, elapsed).catch(() => {});
-    }
+    // addRunToProgression is already called in the gameover phase effect — no duplicate here
     router.replace('/character-select');
   }, [router]);
 
   const handleMenu = useCallback(() => {
-    const state = gameRef.current;
-    if (state) {
-      const elapsed = Math.round((Date.now() - (state.stats?.startTime ?? Date.now())) / 1000);
-      addRunToProgression(state.wave?.number ?? 0, state.stats?.enemiesKilled ?? 0, elapsed).catch(() => {});
-    }
+    // addRunToProgression is already called in the gameover phase effect — no duplicate here
     router.replace('/');
   }, [router]);
 

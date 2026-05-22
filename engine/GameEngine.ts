@@ -975,19 +975,21 @@ function dealDamage(state: GameState, enemy: Enemy, dmg: number, isCrit: boolean
   }
   
   // Shield absorption for shielded elites
+  let overflow = actual;
   if (enemy.shieldHp > 0) {
     const absorb = Math.min(enemy.shieldHp, actual);
     enemy.shieldHp -= absorb;
+    overflow = actual - absorb;
     addDmgNum(state, enemy.x + rng(-8, 8), enemy.y - 20, `-${absorb}`, '#2DD4BF');
     if (enemy.shieldHp <= 0) {
       addEffect(state, enemy.x, enemy.y, 'burst', '#2DD4BF', 0, enemy.radius * 2);
     }
-    if (actual <= absorb) return;
+    if (overflow <= 0) return;
   }
-  
-  enemy.hp -= actual;
+
+  enemy.hp -= overflow;
   enemy.flashTimer = 0.08;
-  state.stats.damageDealt += actual;
+  state.stats.damageDealt += overflow;
   
   // Enhanced screen shake on every hit
   const shakeIntensity = isCrit ? 5 : 2.5;
@@ -1473,7 +1475,7 @@ function updateHatchAnimations(state: GameState, dt: number): void {
   for (const h of state.hatchAnimations) {
     h.timer -= dt;
     const prog = 1 - h.timer / h.maxTimer;
-    if (prog > 0.4 && prog < 0.7 && Math.random() < 0.3) {
+    if (prog > 0.4 && prog < 0.7 && rng(0, 1) < 0.3) {
       addEffect(state, h.x + rng(-8, 8), h.y + rng(-8, 8), 'spark', '#FBBF24', 0, 6);
     }
     if (h.timer <= 0) completed.push(h.id);
@@ -1717,6 +1719,7 @@ function spawnEnemies(state: GameState, dt: number): void {
   const swarmerPressureBonus = pressure >= 0.8 ? 1 : 0;
   const count = chosen.type === 'swarmer' ? baseSwarmerCount + swarmerPressureBonus : 1;
 
+  let actuallySpawned = 0;
   for (let i = 0; i < count; i++) {
     if (aliveCount >= MAX_ENEMIES) break;
     const ox = chosen.type === 'swarmer' ? rng(-30, 30) : 0;
@@ -1759,8 +1762,9 @@ function spawnEnemies(state: GameState, dt: number): void {
     if (!isBoss) applyEliteStats(enemy, elite);
     state.enemies.push(enemy);
     aliveCount++;
+    actuallySpawned++;
   }
-  state.wave.enemiesSpawned += count;
+  state.wave.enemiesSpawned += actuallySpawned;
 }
 
 function spawnResourceNodes(state: GameState, count: number): void {
@@ -2292,7 +2296,7 @@ export function pauseGame(state: GameState): void {
 }
 
 export function resumeGame(state: GameState): void {
-  state.phase = state.prevPhase === 'paused' ? 'playing' : (state.prevPhase ?? 'playing');
+  state.phase = state.prevPhase ?? 'playing';
 }
 
 // ═══ HUD EXTRACTION ═══
