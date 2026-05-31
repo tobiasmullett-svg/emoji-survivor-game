@@ -1,5 +1,5 @@
 diff --git a/node_modules/expo-keep-awake/src/ExpoKeepAwake.web.ts b/node_modules/expo-keep-awake/src/ExpoKeepAwake.web.ts
-index 9b48e90..d708eaf 100644
+index 9b48e90..6fbd1e3 100644
 --- a/node_modules/expo-keep-awake/src/ExpoKeepAwake.web.ts
 +++ b/node_modules/expo-keep-awake/src/ExpoKeepAwake.web.ts
 @@ -32,8 +32,12 @@ export default {
@@ -17,3 +17,19 @@ index 9b48e90..d708eaf 100644
    },
    async deactivate(tag: string) {
      if (!Platform.isDOMAvailable) {
+@@ -42,12 +46,10 @@ export default {
+     if (wakeLockMap[tag]) {
+       wakeLockMap[tag].release?.();
+       delete wakeLockMap[tag];
+-    } else {
+-      throw new CodedError(
+-        'ERR_KEEP_AWAKE_TAG_INVALID',
+-        `The wake lock with tag ${tag} has not activated yet`
+-      );
+     }
++    // If the tag was never activated (e.g. the wake lock request was denied or
++    // skipped on web — see activate's try/catch), deactivate is a no-op rather
++    // than throwing, so unmounting a screen that called useKeepAwake is safe.
+   },
+   addListenerForTag(tag: string, listener: KeepAwakeListener): EventSubscription {
+     const eventListener = () => {

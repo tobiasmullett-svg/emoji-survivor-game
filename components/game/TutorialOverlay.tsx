@@ -36,14 +36,19 @@ const SLIDES = [
 
 export default function TutorialOverlay({ onDismiss }: Props) {
   const [currentSlide, setCurrentSlide] = useState(0);
-  const slide = SLIDES[currentSlide];
+  // Defensive fallback: index can never legitimately exceed the last slide
+  // (see handleNext), but guard against an out-of-range read crashing render.
+  const slide = SLIDES[currentSlide] ?? SLIDES[SLIDES.length - 1];
 
   const handleNext = () => {
-    if (currentSlide < SLIDES.length - 1) {
-      setCurrentSlide(s => s + 1);
-    } else {
+    if (currentSlide >= SLIDES.length - 1) {
       onDismiss();
+      return;
     }
+    // Functional updater + clamp: taps faster than React re-renders share a
+    // stale `currentSlide`, so a plain `s => s + 1` could batch several
+    // increments and overshoot the array. Clamping keeps the index in range.
+    setCurrentSlide(s => Math.min(s + 1, SLIDES.length - 1));
   };
 
   return (
