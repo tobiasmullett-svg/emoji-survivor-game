@@ -2,7 +2,7 @@ import type { CharacterDef, WeaponDef, EnemyDef, ItemDef, WeaponId } from './typ
 
 export const CHARACTERS: CharacterDef[] = [
   {
-    id: 'crab', name: 'Crab Commander', emoji: '🦀', desc: 'Balanced warrior',
+    id: 'crab', name: 'Crab Commander', emoji: '🦀', desc: 'Balanced warrior (+10% pet dmg)',
     hp: 100, speed: 3, damageMult: 1, armor: 2, dodge: 5, luck: 0,
     harvesting: 0, attackSpeedMult: 1, critChance: 5, startWeapon: 'pistol',
     abilityName: 'Shield', abilityEmoji: '🛡️', abilityDesc: 'Block all damage for 3s',
@@ -10,14 +10,14 @@ export const CHARACTERS: CharacterDef[] = [
   },
   {
     id: 'octopus', name: 'Octopus Assassin', emoji: '🐙', desc: 'Swift striker',
-    hp: 70, speed: 4.5, damageMult: 1.2, armor: 0, dodge: 15, luck: 5,
+    hp: 70, speed: 4.5, damageMult: 1.15, armor: 0, dodge: 12, luck: 5,
     harvesting: 0, attackSpeedMult: 1.3, critChance: 10, startWeapon: 'claw',
     abilityName: 'Dash', abilityEmoji: '💨', abilityDesc: 'Quick invincible dash',
     abilityCooldown: 20,
   },
   {
-    id: 'squid', name: 'Squid Tank', emoji: '🦑', desc: 'Unstoppable force',
-    hp: 150, speed: 2, damageMult: 0.9, armor: 4, dodge: 0, luck: 0,
+    id: 'squid', name: 'Squid Tank', emoji: '🦑', desc: 'Unstoppable force (Thorns passive)',
+    hp: 150, speed: 2.5, damageMult: 1.0, armor: 4, dodge: 0, luck: 0,
     harvesting: 5, attackSpeedMult: 0.8, critChance: 3, startWeapon: 'stick',
     abilityName: 'Pulse', abilityEmoji: '💥', abilityDesc: 'AoE damage burst',
     abilityCooldown: 20,
@@ -83,9 +83,15 @@ export const ENEMY_DEFS: EnemyDef[] = [
   { type: 'spitter', emoji: '🦠', hp: 22, speed: 48, damage: 9, radius: 14, fontSize: 26, ranged: true, attackRange: 185, attackCooldown: 1.8, projEmoji: '🟢', spawnWeight: 22, minWave: 3 },
   { type: 'swarmer', emoji: '🐛', hp: 12, speed: 118, damage: 4, radius: 10, fontSize: 20, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 32, minWave: 6 },
   { type: 'charger', emoji: '🦈', hp: 46, speed: 62, damage: 13, radius: 18, fontSize: 31, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 14, minWave: 7 },
+  { type: 'jellyfish', emoji: '🪼', hp: 35, speed: 55, damage: 8, radius: 16, fontSize: 30, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 18, minWave: 8 },
   { type: 'golem', emoji: '🪨', hp: 80, speed: 30, damage: 15, radius: 24, fontSize: 36, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 10, minWave: 10 },
   { type: 'ghost', emoji: '👻', hp: 25, speed: 70, damage: 7, radius: 14, fontSize: 26, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 15, minWave: 13 },
   { type: 'fireElem', emoji: '🔥', hp: 30, speed: 50, damage: 6, radius: 16, fontSize: 28, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 15, minWave: 16 },
+  // Bosses (spawn weight 0 means they only spawn via script)
+  { type: 'bossKraken', emoji: '🐙', hp: 800, speed: 35, damage: 20, radius: 32, fontSize: 48, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 0, minWave: 99 },
+  { type: 'bossLeviathan', emoji: '🐉', hp: 1500, speed: 45, damage: 25, radius: 32, fontSize: 48, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 0, minWave: 99 },
+  { type: 'bossAbyssalLord', emoji: '👑', hp: 3000, speed: 30, damage: 30, radius: 36, fontSize: 52, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 0, minWave: 99 },
+  { type: 'bossTideEmperor', emoji: '🌊', hp: 5000, speed: 40, damage: 40, radius: 40, fontSize: 60, ranged: false, attackRange: 0, attackCooldown: 0, projEmoji: '', spawnWeight: 0, minWave: 99 },
 ];
 
 export const ITEM_DEFS: ItemDef[] = [

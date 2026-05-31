@@ -3,10 +3,14 @@ import type {
   GameState, PlayerState, Enemy, Projectile, Pickup, DmgNum, ResourceNode, PetCompanion, PetKind, PetPerk,
   CharacterId, GamePhase, WeaponId, ItemId, Rarity, WeaponState, EliteModifier,
   ShopSlot, LevelUpOption, RelicChoice, RunRelic, RelicId, HudData, WaveState, PendingHatch,
+  StatusEffectType,
 } from './types';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ENEMY_DEFS, ITEM_DEFS, WEAPON_IDS, ELITE_COLORS, ELITE_EMOJIS, MODIFIER_NAMES } from './data';
-import { playSound } from '../services/audio';
-import { haptic } from '../services/haptics';
+import type { SoundName } from '../services/audio';
+import type { HapticKind } from '../services/haptics';
+import type { GameEvent } from './types';
+import { isInArenaObstacle, resolveArenaObstacleCollision, findNearestOpenPoint, isInWater } from './arena';
+export { isInWater };
 import {
   ARENA_W, ARENA_H, WAVE_BASE_TIME, WAVE_TIME_INC, MAX_WAVES,
   MAX_ENEMIES, MAX_PROJECTILES, MAX_PICKUPS, MAX_DMG_NUMS, MAX_EFFECTS,
@@ -25,7 +29,6 @@ import {
   WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST,
   WEAPON_MAX_LEVEL, WEAPON_LEVEL_DAMAGE_BONUS,
   MAX_HAZARDS, HAZARD_BASE_DAMAGE, HAZARD_RADIUS,
-  WATER_ZONES, ARENA_OBSTACLES,
   PLAYER_MAX_OXYGEN, OXYGEN_DRAIN_PER_SEC, OXYGEN_REGEN_PER_SEC, OXYGEN_DAMAGE_TICK, OXYGEN_DAMAGE_INTERVAL,
 } from './constants';
 
@@ -117,62 +120,25 @@ const RELIC_DEFS: readonly RelicChoice[] = Object.freeze([
   }),
 ]);
 
-function isInArenaObstacle(x: number, y: number, radius = 0): boolean {
-  for (const obstacle of ARENA_OBSTACLES) {
-    const rx = obstacle.rx + radius;
-    const ry = obstacle.ry + radius;
-    const nx = (x - obstacle.x) / rx;
-    const ny = (y - obstacle.y) / ry;
-    if (nx * nx + ny * ny < 1) return true;
-  }
-  return false;
+/** Queue a sound for the UI layer to play after the current tick. */
+function playSound(state: GameState, id: SoundName): void {
+  state.events.push({ kind: 'sound', id });
 }
 
-function resolveArenaObstacleCollision(x: number, y: number, radius: number): Vec2 {
-  let px = x;
-  let py = y;
-  for (let pass = 0; pass < 2; pass++) {
-    for (const obstacle of ARENA_OBSTACLES) {
-      const rx = obstacle.rx + radius;
-      const ry = obstacle.ry + radius;
-      const nx = (px - obstacle.x) / rx;
-      const ny = (py - obstacle.y) / ry;
-      const d2 = nx * nx + ny * ny;
-      if (d2 >= 1) continue;
-      if (d2 < 0.0001) {
-        px = obstacle.x + rx;
-        py = obstacle.y;
-        continue;
-      }
-      const d = Math.sqrt(d2);
-      px = obstacle.x + (nx / d) * rx;
-      py = obstacle.y + (ny / d) * ry;
-    }
-  }
-  return { x: px, y: py };
+/** Queue a haptic cue for the UI layer to fire after the current tick. */
+function haptic(state: GameState, id: HapticKind): void {
+  state.events.push({ kind: 'haptic', id });
 }
 
-function findNearestOpenPoint(state: GameState, x: number, y: number, radius: number): Vec2 {
-  let point = resolveArenaObstacleCollision(x, y, radius);
-  point.x = clamp(point.x, radius, state.arena.width - radius);
-  point.y = clamp(point.y, radius, state.arena.height - radius);
-  if (!isInArenaObstacle(point.x, point.y, radius)) return point;
-  for (let ring = 1; ring <= 4; ring++) {
-    const step = 28 * ring;
-    for (let i = 0; i < 10; i++) {
-      const a = (Math.PI * 2 * i) / 10;
-      const candidate = resolveArenaObstacleCollision(
-        clamp(x + Math.cos(a) * step, radius, state.arena.width - radius),
-        clamp(y + Math.sin(a) * step, radius, state.arena.height - radius),
-        radius,
-      );
-      candidate.x = clamp(candidate.x, radius, state.arena.width - radius);
-      candidate.y = clamp(candidate.y, radius, state.arena.height - radius);
-      if (!isInArenaObstacle(candidate.x, candidate.y, radius)) return candidate;
-    }
-  }
-  return point;
+/** Remove and return all side-effect events queued since the last drain. */
+export function drainEvents(state: GameState): GameEvent[] {
+  if (state.events.length === 0) return EMPTY_EVENTS;
+  const drained = state.events;
+  state.events = [];
+  return drained;
 }
+
+const EMPTY_EVENTS: GameEvent[] = [];
 
 // ═══ PET PERKS ═══
 const PET_PERK_DEFS: Record<PetKind, { level: number; perk: PetPerk }[]> = {
@@ -268,7 +234,47 @@ function getPetDamageRelicMult(state: GameState, enemy?: Enemy): number {
 function getPickupRange(state: GameState): number {
   let range = state.player.pickupRange;
   if (hasRelic(state, 'abyssalMagnet')) range *= 1.9;
-  return range * (1 + state.player.luck * 0.01);
+  return range * (1 + state.player.luck * 0.01) * getComboPickupRangeBonus(state);
+}
+
+function getComboTier(state: GameState): 'none' | 'bronze' | 'silver' | 'gold' | 'platinum' {
+  const c = state.combo.count;
+  if (c >= 64) return 'platinum';
+  if (c >= 32) return 'gold';
+  if (c >= 16) return 'silver';
+  if (c >= 8) return 'bronze';
+  return 'none';
+}
+
+function getComboDamageMult(state: GameState): number {
+  const t = getComboTier(state);
+  if (t === 'platinum') return 1.30;
+  if (t === 'gold') return 1.20;
+  if (t === 'silver') return 1.10;
+  if (t === 'bronze') return 1.05;
+  return 1.0;
+}
+
+function getComboSpeedMult(state: GameState): number {
+  const t = getComboTier(state);
+  if (t === 'platinum') return 1.20;
+  if (t === 'gold') return 1.15;
+  if (t === 'silver') return 1.10;
+  return 1.0;
+}
+
+function getComboPickupRangeBonus(state: GameState): number {
+  const t = getComboTier(state);
+  if (t === 'platinum' || t === 'gold') return 1.10;
+  return 1.0;
+}
+
+function getPlayerDamageMult(state: GameState): number {
+  return state.player.damageMult * getComboDamageMult(state);
+}
+
+function getPlayerSpeedMult(state: GameState): number {
+  return state.player.speedMult * getComboSpeedMult(state);
 }
 
 function getComboDuration(state: GameState): number {
@@ -363,6 +369,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     prevInWater: false,
     oxygenDamageTimer: OXYGEN_DAMAGE_INTERVAL,
     obstacleBumpTimer: 0,
+    events: [],
   };
   spawnResourceNodes(state, 5);
   return state;
@@ -488,7 +495,7 @@ function updatePlayer(state: GameState, dt: number, input: Vec2): void {
   const p = state.player;
   if (state.obstacleBumpTimer > 0) state.obstacleBumpTimer = Math.max(0, state.obstacleBumpTimer - dt);
   const speedPenalty = state.inWater && !hasRelic(state, 'oxygenDebt') ? 0.84 : 1;
-  const speed = p.baseSpeed * p.speedMult * 50 * speedPenalty;
+  const speed = p.baseSpeed * getPlayerSpeedMult(state) * 50 * speedPenalty;
   p.x += input.x * speed * dt;
   p.y += input.y * speed * dt;
   // Knockback decay
@@ -510,22 +517,13 @@ function updatePlayer(state: GameState, dt: number, input: Vec2): void {
   if (p.abilityCooldown > 0) p.abilityCooldown = Math.max(0, p.abilityCooldown - dt);
 }
 
-export function isInWater(x: number, y: number): boolean {
-  for (const zone of WATER_ZONES) {
-    const dx = x - zone.x;
-    const dy = y - zone.y;
-    if (dx * dx + dy * dy <= zone.radius * zone.radius) return true;
-  }
-  return false;
-}
-
 function updateWaterBreath(state: GameState, dt: number): void {
   const p = state.player;
   const was = state.prevInWater;
   const now = isInWater(p.x, p.y);
   state.inWater = now;
-  if (now && !was) playSound('enterWater');
-  if (!now && was) playSound('exitWater');
+  if (now && !was) playSound(state, 'enterWater');
+  if (!now && was) playSound(state, 'exitWater');
   state.prevInWater = now;
   if (state.inWater) {
     p.oxygen = Math.max(0, p.oxygen - OXYGEN_DRAIN_PER_SEC * getOxygenDrainMult(state) * dt);
@@ -541,7 +539,7 @@ function updateWaterBreath(state: GameState, dt: number): void {
         state.shake = { x: 0, y: 0, timer: 0.1, intensity: 4 };
         state.hitStop = Math.max(state.hitStop, HIT_STOP_DURATION * 0.8);
         state.oxygenDamageTimer = OXYGEN_DAMAGE_INTERVAL;
-        playSound('oxygenTick');
+        playSound(state, 'oxygenTick');
       }
     } else {
       state.oxygenDamageTimer = OXYGEN_DAMAGE_INTERVAL;
@@ -563,15 +561,59 @@ function updateAbilityTimer(state: GameState, dt: number): void {
   }
 }
 
+export function applyStatusEffect(enemy: Enemy, type: StatusEffectType, duration: number, damagePerTick?: number): void {
+  if (!enemy.statusEffects) enemy.statusEffects = [];
+  const existing = enemy.statusEffects.find(e => e.type === type);
+  if (existing) {
+    existing.timer = Math.max(existing.timer, duration);
+    existing.maxTime = Math.max(existing.maxTime, duration);
+    if (existing.stacks < 5) existing.stacks++;
+    if (damagePerTick) existing.damagePerTick = damagePerTick;
+  } else {
+    enemy.statusEffects.push({ type, timer: duration, maxTime: duration, stacks: 1, damagePerTick, lastTick: 0 });
+  }
+}
+
+function updateStatusEffects(state: GameState, e: Enemy, dt: number): void {
+  if (!e.statusEffects) e.statusEffects = [];
+  e.statusEffects.forEach(effect => {
+    effect.timer -= dt;
+    if (effect.type === 'burn' || effect.type === 'poison') {
+      const tickRate = 0.5;
+      if (effect.lastTick === undefined || effect.maxTime - effect.timer > effect.lastTick + tickRate) {
+        effect.lastTick = (effect.lastTick || 0) + tickRate;
+        if (effect.damagePerTick) {
+          dealDamage(state, e, effect.damagePerTick * effect.stacks, false);
+          if (effect.type === 'burn') addEffect(state, e.x, e.y + 10, 'smoke', '#EF4444', 0, e.radius);
+          if (effect.type === 'poison') addEffect(state, e.x, e.y + 10, 'smoke', '#10B981', 0, e.radius);
+        }
+      }
+    }
+  });
+  e.statusEffects = e.statusEffects.filter(eff => eff.timer > 0);
+}
+
 // ═══ ENEMIES ═══
 function updateEnemies(state: GameState, dt: number): void {
   const p = state.player;
   for (const e of state.enemies) {
     if (!e.alive) continue;
+    updateStatusEffects(state, e, dt);
+    if (!e.alive) continue;
+
+    const isStunned = e.statusEffects.some(s => s.type === 'stun');
+    const isFrozen = e.statusEffects.some(s => s.type === 'freeze');
+    const isPoisoned = e.statusEffects.some(s => s.type === 'poison');
+    const isBleeding = e.statusEffects.some(s => s.type === 'bleed');
+
     // Knockback
     if (Math.abs(e.knockbackX) > 0.5 || Math.abs(e.knockbackY) > 0.5) {
       e.x += e.knockbackX * dt * 60;
       e.y += e.knockbackY * dt * 60;
+      if (isBleeding) {
+        dealDamage(state, e, 5 * dt * 60, false);
+        if (rng(0, 1) < 0.2) addEffect(state, e.x, e.y, 'smoke', '#991B1B', 0, e.radius);
+      }
       e.knockbackX *= (1 - KB_DECAY * dt);
       e.knockbackY *= (1 - KB_DECAY * dt);
     }
@@ -596,13 +638,14 @@ function updateEnemies(state: GameState, dt: number): void {
       if (e.telegraphTimer <= 0 && e.telegraphType === 'attack') {
         // Execute telegraphed attack
         const eDef = ENEMY_DEF_BY_TYPE.get(e.type);
-        if (eDef && eDef.ranged) {
+        if (eDef && eDef.ranged && !isStunned) {
           const dir = norm({ x: p.x - e.x, y: p.y - e.y });
+          const dmg = e.damage * (isPoisoned ? 0.7 : 1.0);
           if (state.projectiles.length < MAX_PROJECTILES) {
             state.projectiles.push({
               id: nid(), x: e.x, y: e.y,
               vx: dir.x * 200, vy: dir.y * 200,
-              damage: e.damage, emoji: eDef.projEmoji || '🟢',
+              damage: dmg, emoji: eDef.projEmoji || '🟢',
               radius: 6, piercing: false, hitIds: [],
               life: 2, maxLife: 2, isEnemy: true,
             });
@@ -640,6 +683,8 @@ function updateEnemies(state: GameState, dt: number): void {
     let speedMult = getEnemyRelicSpeedMult(state);
     if (state.waveModifier === 'doubleSpeed') speedMult *= 1.5;
     if (state.waveModifier === 'armored') speedMult *= 0.75;
+    if (isStunned) speedMult = 0;
+    else if (isFrozen) speedMult *= 0.5;
     
     // Ranged enemies stop at range
     if (eDef.ranged && d < eDef.attackRange) {
@@ -802,7 +847,7 @@ function updatePets(state: GameState, dt: number): void {
     addEffect(state, pet.x, pet.y, pet.kind === 'spark' ? 'beam' : 'muzzle', def.color, pet.aimAngle, pet.kind === 'spark' ? Math.min(attackRange, dist(pet, nearest)) : 18);
     if (pet.kind === 'spark') addEffect(state, nearest.x, nearest.y, 'zap', def.color, 0, 24 + pet.level * 2);
     if (pet.kind === 'snapper' && pet.level >= 4) addEffect(state, pet.x, pet.y, 'slash', def.color, pet.aimAngle, 24 + pet.level * 2);
-    const baseDmg = pet.damage * p.damageMult * (1 + (pet.level - 1) * 0.32) * synergyMult * getPetDamageRelicMult(state, nearest);
+    const baseDmg = pet.damage * getPlayerDamageMult(state) * (1 + (pet.level - 1) * 0.32) * synergyMult * getPetDamageRelicMult(state, nearest);
     const projSpeed = pet.kind === 'snapper' ? 420 : 360;
     const shotCount = hasPerk(pet, 'snap_double') ? 2 : 1;
     for (let si = 0; si < shotCount; si++) {
@@ -849,7 +894,7 @@ function weaponPowerMult(ws: WeaponState): number {
 function upgradeWeapon(state: GameState, weapon: WeaponState, rarity: Rarity): void {
   weapon.level = Math.min(WEAPON_MAX_LEVEL, (weapon.level ?? 1) + 1);
   weapon.rarityMult = Math.max(weapon.rarityMult, RARITY_WPN_MULT[rarity] ?? 1);
-  playSound('shopBuy');
+  playSound(state, 'shopBuy');
   addDmgNum(state, state.player.x, state.player.y - 50, `Lv ${weapon.level}!`, '#22C55E');
   addEffect(state, state.player.x, state.player.y, 'burst', '#22C55E', 0, 54);
 }
@@ -882,7 +927,7 @@ function fireMelee(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSta
   const nearestNode = findNearestNode(p, state.resourceNodes, wDef.range + 10);
   if (!nearest && !nearestNode) return;
   ws.cooldownTimer = cd;
-  playSound(ws.evolved ? 'shootHeavy' : 'melee');
+  playSound(state, ws.evolved ? 'shootHeavy' : 'melee');
   addEffect(state, p.x, p.y, 'slash', '#FBBF24', v2angle(sub(nearest ?? nearestNode ?? p, p)), wDef.range);
   // Hit all enemies in range
   for (const e of state.enemies) {
@@ -890,7 +935,7 @@ function fireMelee(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSta
     const d = dist(p, e);
     if (d <= wDef.range + e.radius) {
       const strikeMult = ws.evolved ? Math.max(1, wDef.projCount) : 1;
-      const dmg = wDef.damage * p.damageMult * weaponPowerMult(ws) * strikeMult * getWeaponDamageRelicMult(state, e);
+      const dmg = wDef.damage * getPlayerDamageMult(state) * weaponPowerMult(ws) * strikeMult * getWeaponDamageRelicMult(state, e);
       const isCrit = rng(0, 100) < p.critChance;
       dealDamage(state, e, isCrit ? dmg * 2 : dmg, isCrit, ws);
     }
@@ -898,7 +943,7 @@ function fireMelee(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSta
   for (const node of state.resourceNodes) {
     if (!node.alive) continue;
     if (dist(p, node) <= wDef.range + node.radius) {
-      dealNodeDamage(state, node, wDef.damage * p.damageMult * weaponPowerMult(ws) * getWeaponDamageRelicMult(state));
+      dealNodeDamage(state, node, wDef.damage * getPlayerDamageMult(state) * weaponPowerMult(ws) * getWeaponDamageRelicMult(state));
     }
   }
 }
@@ -912,7 +957,7 @@ function fireRanged(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSt
   ws.cooldownTimer = cd;
   const baseDir = norm(sub(target, p));
   const baseAngle = v2angle(baseDir);
-  playSound(ws.evolved ? 'shootHeavy' : wDef.id === 'smg' ? 'shootFast' : 'shoot');
+  playSound(state, ws.evolved ? 'shootHeavy' : wDef.id === 'smg' ? 'shootFast' : 'shoot');
   addEffect(state, p.x + baseDir.x * 22, p.y + baseDir.y * 22, 'muzzle', '#FBBF24', baseAngle, 26);
   for (let i = 0; i < wDef.projCount; i++) {
     if (state.projectiles.length >= MAX_PROJECTILES) break;
@@ -922,7 +967,7 @@ function fireRanged(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSt
     state.projectiles.push({
       id: nid(), x: p.x, y: p.y,
       vx: dir.x * wDef.projSpeed, vy: dir.y * wDef.projSpeed,
-      damage: wDef.damage * p.damageMult * weaponPowerMult(ws),
+      damage: wDef.damage * getPlayerDamageMult(state) * weaponPowerMult(ws),
       emoji: wDef.projEmoji, radius: 5, piercing: wDef.piercing,
       hitIds: [], life: wDef.range / wDef.projSpeed, maxLife: wDef.range / wDef.projSpeed,
       isEnemy: false, sourceWeaponIndex: weaponIndex,
@@ -941,7 +986,7 @@ function fireSpecial(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponS
   const nearest = findNearest(p, state.enemies, wDef.range);
   if (!nearest) return;
   ws.cooldownTimer = cd;
-  playSound('shootHeavy');
+  playSound(state, 'shootHeavy');
   // Lightning chain
   const targets: Enemy[] = [nearest];
   let cur = nearest;
@@ -957,7 +1002,7 @@ function fireSpecial(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponS
     else break;
   }
   for (const t of targets) {
-    const dmg = wDef.damage * p.damageMult * weaponPowerMult(ws) * getWeaponDamageRelicMult(state, t);
+    const dmg = wDef.damage * getPlayerDamageMult(state) * weaponPowerMult(ws) * getWeaponDamageRelicMult(state, t);
     const isCrit = rng(0, 100) < p.critChance;
     dealDamage(state, t, isCrit ? dmg * 2 : dmg, isCrit, ws);
     addEffect(state, t.x, t.y, 'zap', '#A78BFA', 0, 36);
@@ -967,11 +1012,26 @@ function fireSpecial(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponS
 function dealDamage(state: GameState, enemy: Enemy, dmg: number, isCrit: boolean, sourceWeapon?: WeaponState): void {
   const actual = Math.max(1, Math.round(dmg));
   
+  if (sourceWeapon) {
+    if (sourceWeapon.id === 'pistol' || sourceWeapon.id === 'shotgun') {
+      if (rng(0, 100) < 30) applyStatusEffect(enemy, 'burn', 4, 2 + (sourceWeapon.level || 1));
+    }
+    if (sourceWeapon.id === 'stick') {
+      if (rng(0, 100) < 20) applyStatusEffect(enemy, 'freeze', 3);
+    }
+    if (sourceWeapon.id === 'crossbow') {
+      if (rng(0, 100) < 15) applyStatusEffect(enemy, 'stun', 1.5);
+    }
+    if (sourceWeapon.id === 'claw') {
+      if (rng(0, 100) < 25) applyStatusEffect(enemy, 'bleed', 5);
+    }
+  }
+  
   // Sound effects
   if (isCrit) {
-    playSound('crit');
+    playSound(state, 'crit');
   } else {
-    playSound('hit');
+    playSound(state, 'hit');
   }
   
   // Shield absorption for shielded elites
@@ -1080,13 +1140,13 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   
   // Sound and haptics
   if (enemy.isBoss) {
-    playSound('explosion');
-    haptic('heavy');
+    playSound(state, 'explosion');
+    haptic(state, 'heavy');
   } else if (enemy.elite !== 'none') {
-    playSound('kill');
-    haptic('light');
+    playSound(state, 'kill');
+    haptic(state, 'light');
   } else {
-    playSound(isInWater(enemy.x, enemy.y) ? 'deepKill' : 'kill');
+    playSound(state, isInWater(enemy.x, enemy.y) ? 'deepKill' : 'kill');
   }
   
   // Death particles
@@ -1121,6 +1181,15 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   if (state.combo.count % COMBO_BONUS_STEP === 0) {
     addDmgNum(state, enemy.x, enemy.y - 36, `${state.combo.count}x combo`, '#2DD4BF');
     dropPickup(state, enemy.x + rng(-14, 14), enemy.y + rng(-14, 14), 'material', Math.max(2, Math.floor(state.combo.count / COMBO_BONUS_STEP)), '🪙');
+    if (state.combo.count >= 64) {
+      addEffect(state, enemy.x, enemy.y, 'ring', '#8B5CF6', 0, 150);
+      playSound(state, 'evolve');
+      for (const e of state.enemies) {
+        if (e.alive && dist(e, { x: enemy.x, y: enemy.y }) < 150) {
+          dealDamage(state, e, 40 * getPlayerDamageMult(state), false);
+        }
+      }
+    }
   }
   if (hasRelic(state, 'comboEngine') && state.combo.count % (COMBO_BONUS_STEP * 2) === 0) {
     triggerComboSurge(state, enemy.x, enemy.y);
@@ -1136,7 +1205,7 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   if (sourceWeapon && !sourceWeapon.evolved) {
     sourceWeapon.killCount++;
     if (sourceWeapon.killCount === WEAPON_EVOLVE_KILLS) {
-      playSound('evolve');
+      playSound(state, 'evolve');
       addDmgNum(state, enemy.x, enemy.y - 50, `${WEAPONS[sourceWeapon.id]?.name ?? 'Weapon'} ready!`, '#F59E0B');
     }
   }
@@ -1173,11 +1242,11 @@ function triggerComboSurge(state: GameState, x: number, y: number): void {
   addDmgNum(state, x, y - 62, 'chain surge', '#A78BFA');
   addEffect(state, x, y, 'ring', '#A78BFA', 0, radius);
   addEffect(state, x, y, 'burst', '#A78BFA', 0, 62);
-  playSound('crit');
+  playSound(state, 'crit');
   for (const e of state.enemies) {
     if (!e.alive) continue;
     if (dist({ x, y }, e) <= radius + e.radius) {
-      dealDamage(state, e, dmg * state.player.damageMult, false);
+      dealDamage(state, e, dmg * getPlayerDamageMult(state), false);
     }
   }
 }
@@ -1210,7 +1279,7 @@ function updateDeathParticles(state: GameState, dt: number): void {
 
 function dropPickup(state: GameState, x: number, y: number, type: Pickup['type'], value: number, emoji: string): boolean {
   if (state.pickups.length >= MAX_PICKUPS) return false;
-  const point = findNearestOpenPoint(state, x, y, 12);
+  const point = findNearestOpenPoint(state.arena, x, y, 12);
   state.pickups.push({ id: nid(), x: point.x, y: point.y, type, value, emoji });
   return true;
 }
@@ -1296,10 +1365,18 @@ function checkEnemyPlayerHits(state: GameState): void {
         p.invulnTimer = INVULN_TIME;
         state.stats.damageTaken += dmg;
         state.stats.wasHit = true;
+        
+        if (p.characterId === 'squid') {
+          const reflect = Math.max(1, Math.round(dmg * 0.1));
+          dealDamage(state, e, reflect, false);
+          applyStatusEffect(e, 'poison', 4, 1);
+          addEffect(state, p.x, p.y, 'ring', '#10B981', 0, p.radius + 10);
+        }
+
         addDmgNum(state, p.x, p.y - 20, String(dmg), '#EF4444');
         state.shake = { x: 0, y: 0, timer: 0.25, intensity: 7 };
         state.hitStop = Math.max(state.hitStop, HIT_STOP_DURATION);
-        haptic('medium');
+        haptic(state, 'medium');
       } else {
         addDmgNum(state, p.x, p.y - 20, 'DODGE', '#06B6D4');
         p.invulnTimer = 0.2;
@@ -1336,17 +1413,17 @@ function checkPickupCollection(state: GameState): void {
       if (pk.type === 'material') {
         state.materials += pk.value;
         state.stats.materialsCollected += pk.value;
-        playSound('pickupMat');
+        playSound(state, 'pickupMat');
       } else if (pk.type === 'xp') {
         p.xp += pk.value;
-        playSound('pickup');
+        playSound(state, 'pickup');
       } else if (pk.type === 'heal') {
         p.hp = Math.min(p.maxHp, p.hp + pk.value);
         addDmgNum(state, p.x, p.y - 28, `+${pk.value}`, '#FB7185');
-        playSound('heal');
+        playSound(state, 'heal');
       } else {
         hatchPet(state);
-        playSound('pickup');
+        playSound(state, 'pickup');
       }
       return false;
     }
@@ -1499,7 +1576,7 @@ function updateHatchAnimations(state: GameState, dt: number): void {
       addDmgNum(state, hatch.x, hatch.y - 42, `${data.name} joined!`, def.color);
       addEffect(state, hatch.x, hatch.y, 'ring', def.color, 0, 52);
       addEffect(state, hatch.x, hatch.y, 'burst', def.color, 0, 42);
-      playSound('shopBuy');
+      playSound(state, 'shopBuy');
     }
   }
   if (completed.length > 0) {
@@ -1676,11 +1753,15 @@ function spawnEnemies(state: GameState, dt: number): void {
   state.wave.spawnTimer = state.wave.spawnInterval;
   if (isBoss) state.wave.bossSpawned = true;
   if (isBoss) {
-    chosen = available.reduce((best, candidate) => {
-      const bestScore = best.hp + best.damage * 5 + best.radius;
-      const candidateScore = candidate.hp + candidate.damage * 5 + candidate.radius;
-      return candidateScore > bestScore ? candidate : best;
-    }, available[0]);
+    const waveToBoss: Record<number, string> = {
+      5: 'bossKraken',
+      10: 'bossLeviathan',
+      15: 'bossAbyssalLord',
+      20: 'bossTideEmperor',
+    };
+    const bossId = waveToBoss[state.wave.number] || 'bossKraken';
+    const bossDef = ENEMY_DEFS.find(e => e.type === bossId);
+    if (bossDef) chosen = bossDef;
   }
 
   // Elite check
@@ -1705,7 +1786,7 @@ function spawnEnemies(state: GameState, dt: number): void {
   sx = clamp(sx, 20, state.arena.width - 20);
   sy = clamp(sy, 20, state.arena.height - 20);
   if (isInArenaObstacle(sx, sy, chosen.radius * (isBoss ? BOSS_SIZE_MULT : 1))) {
-    const point = findNearestOpenPoint(state, sx, sy, chosen.radius * (isBoss ? BOSS_SIZE_MULT : 1));
+    const point = findNearestOpenPoint(state.arena, sx, sy, chosen.radius * (isBoss ? BOSS_SIZE_MULT : 1));
     sx = point.x;
     sy = point.y;
   }
@@ -1725,7 +1806,7 @@ function spawnEnemies(state: GameState, dt: number): void {
     const ox = chosen.type === 'swarmer' ? rng(-30, 30) : 0;
     const oy = chosen.type === 'swarmer' ? rng(-30, 30) : 0;
     const spawnPoint = findNearestOpenPoint(
-      state,
+      state.arena,
       clamp(sx + ox, 20, state.arena.width - 20),
       clamp(sy + oy, 20, state.arena.height - 20),
       Math.round(chosen.radius * (isBoss ? BOSS_SIZE_MULT : 1)),
@@ -1749,6 +1830,7 @@ function spawnEnemies(state: GameState, dt: number): void {
       telegraphTimer: 0, telegraphMax: 0, telegraphType: 'none',
       chargeTimer: 0, chargeCooldown: chosen.type === 'charger' ? rng(0.35, 1.2) : 0, chargeVx: 0, chargeVy: 0,
       fireTrailTimer: chosen.type === 'fireElem' ? rng(0.2, 1.0) : 0,
+      statusEffects: [],
     };
     if (isBoss) {
       enemy.maxShieldHp = Math.round(enemy.maxHp * 0.18);
@@ -1785,7 +1867,7 @@ function spawnResourceNodes(state: GameState, count: number): void {
         && state.resourceNodes.every(n => !n.alive || dist({ x, y }, n) > 110)
       ) break;
     }
-    const point = findNearestOpenPoint(state, x, y, def.radius + 10);
+    const point = findNearestOpenPoint(state.arena, x, y, def.radius + 10);
     state.resourceNodes.push({
       id: nid(), x: point.x, y: point.y, kind,
       hp: def.hp + state.wave.number * 3,
@@ -1822,8 +1904,8 @@ function checkLevelUp(state: GameState): void {
     p.xp -= p.xpToNext;
     p.level++;
     p.xpToNext = XP_BASE + (p.level - 1) * XP_INC;
-    playSound('levelup');
-    haptic('success');
+    playSound(state, 'levelup');
+    haptic(state, 'success');
     generateLevelUpChoices(state);
     state.prevPhase = state.phase;
     state.phase = 'levelup';
@@ -1956,7 +2038,7 @@ function applyRelicImmediateEffect(state: GameState, relic: RunRelic): void {
   }
   addDmgNum(state, p.x, p.y - 54, `${relic.emoji} ${relic.name}`, '#FBBF24');
   addEffect(state, p.x, p.y, 'burst', '#FBBF24', 0, 78);
-  playSound('evolve');
+  playSound(state, 'evolve');
 }
 
 export function applyRelicChoice(state: GameState, index: number): boolean {
@@ -1975,7 +2057,7 @@ function checkDeath(state: GameState): void {
   if (state.player.hp <= 0) {
     state.player.hp = 0;
     state.phase = 'gameover';
-    haptic('warning');
+    haptic(state, 'warning');
   }
 }
 
@@ -2016,7 +2098,7 @@ function applyEvolution(state: GameState, weaponIndex: number): void {
   if (!weapon || weapon.evolved) return;
   weapon.evolved = true;
   state.stats.weaponsEvolved++;
-  playSound('evolve');
+  playSound(state, 'evolve');
   addDmgNum(state, state.player.x, state.player.y - 50, `${EVOLVED_WEAPONS[weapon.id]?.name ?? 'Weapon'}!`, '#F59E0B');
   addEffect(state, state.player.x, state.player.y, 'burst', '#F59E0B', 0, 70);
   state.shake = { x: 0, y: 0, timer: 0.35, intensity: 6 };
@@ -2243,8 +2325,8 @@ export function startNextWave(state: GameState): void {
 export function activateAbility(state: GameState, input: Vec2): void {
   const p = state.player;
   if (p.abilityCooldown > 0 || state.phase !== 'playing') return;
-  playSound('ability');
-  haptic('light');
+  playSound(state, 'ability');
+  haptic(state, 'light');
   switch (p.characterId) {
     case 'crab':
       p.abilityActive = true;
@@ -2311,6 +2393,7 @@ export function extractHudData(state: GameState): HudData {
     abilityCd: p.abilityCooldown, abilityMaxCd: p.abilityMaxCooldown,
     abilityEmoji: cDef?.abilityEmoji ?? '⭐',
     comboCount: state.combo.count, comboTimer: state.combo.timer, comboMaxTime: getComboDuration(state), bestCombo: state.combo.best,
+    comboTier: getComboTier(state),
     petCount: state.pets.length, resourceCount: state.resourceNodes.filter(n => n.alive).length,
     phase: state.phase,
     equippedWeapons: p.weapons.map(w => ({
