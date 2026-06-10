@@ -8,6 +8,8 @@ interface Props {
 const OUTER_R = 55;
 const KNOB_R = 24;
 const MAX_D = 40;
+// Fraction of MAX_D ignored so resting-thumb jitter doesn't cause drift.
+const DEAD_ZONE = 0.12;
 
 export default function VirtualJoystick({ onInput }: Props) {
   const [knob, setKnob] = useState({ x: 0, y: 0 });
@@ -31,7 +33,8 @@ export default function VirtualJoystick({ onInput }: Props) {
         const outLen = Math.sqrt(outX * outX + outY * outY);
         const normX = outLen > 0 ? outX / outLen : 0;
         const normY = outLen > 0 ? outY / outLen : 0;
-        const scale = Math.min(outLen, 1);
+        // Dead zone, then rescale the remaining travel to the full 0..1 range.
+        const scale = outLen <= DEAD_ZONE ? 0 : Math.min((outLen - DEAD_ZONE) / (1 - DEAD_ZONE), 1);
         onInput({ x: normX * scale, y: normY * scale });
       },
       onPanResponderRelease: () => {

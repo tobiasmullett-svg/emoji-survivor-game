@@ -275,6 +275,24 @@ describe('brood', () => {
   });
 });
 
+describe('movement smoothing', () => {
+  it('ramps to full speed quickly and stops cleanly on release', () => {
+    const state = initGameState('crab', 800, 600);
+    state.phase = 'playing';
+    const p = state.player;
+    const dt = 1 / 60;
+    const maxSpeed = p.baseSpeed * p.speedMult * 50;
+
+    for (let i = 0; i < 12; i++) updateGame(state, dt, { x: 1, y: 0 });
+    expect(p.moveVx).toBeGreaterThan(maxSpeed * 0.9);
+    expect(p.x).toBeGreaterThan(1000);
+
+    for (let i = 0; i < 30; i++) updateGame(state, dt, { x: 0, y: 0 });
+    expect(p.moveVx).toBe(0);
+    expect(p.moveVy).toBe(0);
+  });
+});
+
 describe('pet perks', () => {
   it('mend_shield barrier absorbs one enemy contact hit', () => {
     const state = initGameState('crab', 800, 600);

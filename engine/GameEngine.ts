@@ -352,6 +352,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
   const state: GameState = {
     player: {
       x: cx, y: cy,
+      moveVx: 0, moveVy: 0,
       hp: cDef.hp + (startingBonuses?.extraHp ?? 0) * 5,
       maxHp: cDef.hp + (startingBonuses?.extraHp ?? 0) * 5,
       baseSpeed: cDef.speed,
@@ -397,6 +398,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     prevInWater: false,
     oxygenDamageTimer: OXYGEN_DAMAGE_INTERVAL,
     obstacleBumpTimer: 0,
+    critStopCooldown: 0,
   };
   spawnResourceNodes(state, 5);
   return state;
@@ -404,7 +406,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
 
 // ═══ MAIN UPDATE ═══
 export function updateGame(state: GameState, dt: number, input: Vec2): void {
-  if (state.phase === 'waveAnnounce') { updateAnnounce(state, dt); return; }
+  if (state.phase === 'waveAnnounce') { updateAnnounce(state, dt, input); return; }
   if (state.phase === 'collecting') { updateCollecting(state, dt, input); return; }
   if (state.phase !== 'playing') return;
 
@@ -425,6 +427,7 @@ export function updateGame(state: GameState, dt: number, input: Vec2): void {
   if (state.modifierAnnounceTimer > 0) {
     state.modifierAnnounceTimer = Math.max(0, state.modifierAnnounceTimer - dt);
   }
+  if (state.critStopCooldown > 0) state.critStopCooldown = Math.max(0, state.critStopCooldown - dt);
 
   updatePlayer(state, dt, input);
   updateWaterBreath(state, dt);
@@ -447,7 +450,7 @@ export function updateGame(state: GameState, dt: number, input: Vec2): void {
   updateShake(state, dt);
   updateWaveTimer(state, dt);
   spawnEnemies(state, dt);
-  updateCamera(state, input, dt);
+  updateCamera(state, dt);
   state.cleanupCounter++;
   if (state.cleanupCounter >= 60) { cleanup(state); state.cleanupCounter = 0; }
   checkLevelUp(state);
@@ -461,9 +464,17 @@ function updateResourceNodes(state: GameState, dt: number): void {
 }
 
 // ═══ ANNOUNCE ═══
-function updateAnnounce(state: GameState, dt: number): void {
+function updateAnnounce(state: GameState, dt: number, input: Vec2): void {
   state.wave.announceTimer -= dt;
   if (state.modifierAnnounceTimer > 0) state.modifierAnnounceTimer -= dt;
+  // Let the player reposition during the banner so wave starts feel seamless
+  // instead of freezing for the announce duration.
+  updatePlayer(state, dt, input);
+  updateDmgNums(state, dt);
+  updateEffects(state, dt);
+  updateDeathParticles(state, dt);
+  updateShake(state, dt);
+  updateCamera(state, dt);
   if (state.wave.announceTimer <= 0) {
     state.phase = 'playing';
   }
@@ -503,7 +514,7 @@ function updateCollecting(state: GameState, dt: number, input: Vec2): void {
   updateDeathParticles(state, dt);
   updateHatchAnimations(state, dt);
   updateShake(state, dt);
-  updateCamera(state, input, dt);
+  updateCamera(state, dt);
   state.wave.collectTimer -= dt;
   if (state.wave.collectTimer <= 0) {
     state.pickups = [];
@@ -529,9 +540,18 @@ function updatePlayer(state: GameState, dt: number, input: Vec2): void {
   if (state.obstacleBumpTimer > 0) state.obstacleBumpTimer = Math.max(0, state.obstacleBumpTimer - dt);
   const speedPenalty = state.inWater && !hasRelic(state, 'oxygenDebt') ? 0.84 : 1;
   const speed = p.baseSpeed * p.speedMult * 50 * speedPenalty;
-  p.x += input.x * speed * dt;
-  p.y += input.y * speed * dt;
-  // Knockback decay
+  // Ease velocity toward the input so direction flips don't snap. Time
+  // constant keeps full speed reachable in ~3 frames at 60fps.
+  const ease = 1 - Math.exp(-dt / 0.045);
+  p.moveVx += (input.x * speed - p.moveVx) * ease;
+  p.moveVy += (input.y * speed - p.moveVy) * ease;
+  if (len(input) < 0.01 && Math.abs(p.moveVx) + Math.abs(p.moveVy) < speed * 0.04) {
+    p.moveVx = 0;
+    p.moveVy = 0;
+  }
+  p.x += p.moveVx * dt;
+  p.y += p.moveVy * dt;
+  // Invulnerability decay
   if (Math.abs(p.invulnTimer) > 0) {
     p.invulnTimer = Math.max(0, p.invulnTimer - dt);
   }
@@ -1038,9 +1058,13 @@ function dealDamage(state: GameState, enemy: Enemy, dmg: number, isCrit: boolean
     state.shake = { x: 0, y: 0, timer: shakeDuration, intensity: Math.max(state.shake.intensity, shakeIntensity) };
   }
   
-  // Hit stop on crits
+  // Hit stop on crits, rate-limited so rapid-fire crit builds don't turn
+  // the whole game into a stutter; the spark visual still fires every crit.
   if (isCrit) {
-    state.hitStop = Math.max(state.hitStop, CRIT_HIT_STOP * (hasRelic(state, 'stormCache') ? 1.35 : 1));
+    if (state.critStopCooldown <= 0) {
+      state.critStopCooldown = 0.4;
+      state.hitStop = Math.max(state.hitStop, CRIT_HIT_STOP * (hasRelic(state, 'stormCache') ? 1.35 : 1));
+    }
     addEffect(state, enemy.x, enemy.y, 'spark', '#F59E0B', rng(0, Math.PI * 2), 20);
     if (hasRelic(state, 'stormCache')) addEffect(state, enemy.x, enemy.y, 'zap', '#A78BFA', 0, enemy.radius * 1.8);
   }
@@ -1259,10 +1283,32 @@ function dropPickup(state: GameState, x: number, y: number, type: Pickup['type']
 // ═══ PROJECTILES ═══
 function updateProjectiles(state: GameState, dt: number): void {
   for (const proj of state.projectiles) {
+    proj.prevX = proj.x;
+    proj.prevY = proj.y;
     proj.x += proj.vx * dt;
     proj.y += proj.vy * dt;
     proj.life -= dt;
   }
+}
+
+/**
+ * Swept circle test: does the segment from the projectile's previous to its
+ * current position pass within `r` of (cx, cy)? Prevents fast projectiles
+ * from tunneling through small targets on slow frames.
+ */
+function projectileHits(proj: Projectile, cx: number, cy: number, r: number): boolean {
+  const x1 = proj.prevX ?? proj.x;
+  const y1 = proj.prevY ?? proj.y;
+  const dx = proj.x - x1;
+  const dy = proj.y - y1;
+  const len2 = dx * dx + dy * dy;
+  let t = len2 > 0 ? ((cx - x1) * dx + (cy - y1) * dy) / len2 : 0;
+  t = clamp(t, 0, 1);
+  const px = x1 + dx * t;
+  const py = y1 + dy * t;
+  const ddx = cx - px;
+  const ddy = cy - py;
+  return ddx * ddx + ddy * ddy <= r * r;
 }
 
 function checkProjectileHits(state: GameState): void {
@@ -1271,7 +1317,7 @@ function checkProjectileHits(state: GameState): void {
     if (proj.life <= 0) continue;
     if (proj.isEnemy) {
       // Hit player
-      if (dist(proj, p) < p.radius + proj.radius) {
+      if (projectileHits(proj, p.x, p.y, p.radius + proj.radius)) {
         if (p.invulnTimer <= 0 && !p.abilityActive) {
           const dodgeRoll = rng(0, 100);
           if (dodgeRoll >= p.dodge) {
@@ -1295,7 +1341,7 @@ function checkProjectileHits(state: GameState): void {
       for (const e of state.enemies) {
         if (!e.alive) continue;
         if (proj.piercing && proj.hitIds.includes(e.id)) continue;
-        if (dist(proj, e) < e.radius + proj.radius) {
+        if (projectileHits(proj, e.x, e.y, e.radius + proj.radius)) {
           const isCrit = rng(0, 100) < p.critChance;
           const sourceWeapon = proj.sourceWeaponIndex !== undefined ? p.weapons[proj.sourceWeaponIndex] : undefined;
           const relicDamage = sourceWeapon ? proj.damage * getWeaponDamageRelicMult(state, e) : proj.damage;
@@ -1313,7 +1359,7 @@ function checkProjectileHits(state: GameState): void {
       if (proj.life <= 0) continue;
       for (const node of state.resourceNodes) {
         if (!node.alive) continue;
-        if (dist(proj, node) < node.radius + proj.radius) {
+        if (projectileHits(proj, node.x, node.y, node.radius + proj.radius)) {
           const sourceWeapon = proj.sourceWeaponIndex !== undefined ? p.weapons[proj.sourceWeaponIndex] : undefined;
           dealNodeDamage(state, node, sourceWeapon ? proj.damage * getWeaponDamageRelicMult(state) : proj.damage);
           proj.life = 0;
@@ -1396,7 +1442,9 @@ function updatePickups(state: GameState, dt: number): void {
     const d = dist(p, pk);
     if (d < range) {
       const dir = norm(sub({ x: p.x, y: p.y }, { x: pk.x, y: pk.y }));
-      const spd = PICKUP_MAGNET_SPEED;
+      // Suction ramps up as pickups close in, so they accelerate into the
+      // player instead of crawling at a constant speed.
+      const spd = PICKUP_MAGNET_SPEED * (0.65 + (1 - d / range) * 0.9);
       pk.x += dir.x * spd * dt;
       pk.y += dir.y * spd * dt;
     }
@@ -1875,12 +1923,16 @@ function spawnResourceNodes(state: GameState, count: number): void {
 }
 
 // ═══ CAMERA ═══
-function updateCamera(state: GameState, input: Vec2, dt: number): void {
+function updateCamera(state: GameState, dt: number): void {
   const p = state.player;
-  // Lookahead based on movement direction
+  // Lookahead follows the smoothed velocity, so it pans instead of snapping
+  // when the input direction flips.
   const lookaheadDist = 40;
-  const targetX = clamp(p.x + input.x * lookaheadDist, state.sw / 2, state.arena.width - state.sw / 2);
-  const targetY = clamp(p.y + input.y * lookaheadDist, state.sh / 2, state.arena.height - state.sh / 2);
+  const maxSpeed = Math.max(1, p.baseSpeed * p.speedMult * 50);
+  const lookX = clamp(p.moveVx / maxSpeed, -1, 1) * lookaheadDist;
+  const lookY = clamp(p.moveVy / maxSpeed, -1, 1) * lookaheadDist;
+  const targetX = clamp(p.x + lookX, state.sw / 2, state.arena.width - state.sw / 2);
+  const targetY = clamp(p.y + lookY, state.sh / 2, state.arena.height - state.sh / 2);
   // Frame-rate-independent exponential smoothing
   const camSmooth = 1 - Math.pow(0.0008, dt);
   state.camera.x = lerp(state.camera.x, targetX, camSmooth);

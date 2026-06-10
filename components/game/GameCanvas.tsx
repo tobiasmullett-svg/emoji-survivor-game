@@ -47,7 +47,8 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const visibleDeathParticles = (deathParticles ?? []).filter(dp => vis(dp.x, dp.y));
   const visibleDmgNums = (dmgNums ?? []).filter(d => vis(d.x, d.y));
   const effectivePickupRange = getPickupRange(state);
-  const crowded = state.wave.number >= 5 || visibleEnemies.length + visibleProjectiles.length > 45 || visibleEffects.length + visibleDmgNums.length > 35;
+  // Degrade detail based on what's actually on screen, not the wave number.
+  const crowded = visibleEnemies.length + visibleProjectiles.length > 45 || visibleEffects.length + visibleDmgNums.length > 35;
   const displayProjectiles = crowded ? visibleProjectiles.slice(0, 48) : visibleProjectiles;
   const displayEffects = crowded ? visibleEffects.filter(fx => fx.kind !== 'muzzle' && fx.kind !== 'spark').slice(-14) : visibleEffects;
   const displayDeathParticles = crowded ? visibleDeathParticles.slice(-16) : visibleDeathParticles;
