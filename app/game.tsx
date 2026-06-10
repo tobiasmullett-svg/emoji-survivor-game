@@ -31,11 +31,11 @@ import ShopOverlay from '../components/game/ShopOverlay';
 import GameOverOverlay from '../components/game/GameOverOverlay';
 import Minimap from '../components/game/Minimap';
 import TutorialOverlay from '../components/game/TutorialOverlay';
-import { BOSS_WAVES } from '../engine/constants';
+import { BOSS_WAVES, WAVE_BASE_TIME } from '../engine/constants';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const defaultHud: HudData = {
-  hp: 100, maxHp: 100, armor: 0, waveNum: 1, waveTimer: 25, waveMaxTime: 25,
+  hp: 100, maxHp: 100, armor: 0, waveNum: 1, waveTimer: WAVE_BASE_TIME, waveMaxTime: WAVE_BASE_TIME,
   materials: 0, level: 1, xp: 0, xpToNext: 10,
   abilityCd: 0, abilityMaxCd: 30, abilityEmoji: '\u2B50', phase: 'waveAnnounce',
   comboCount: 0, comboTimer: 0, comboMaxTime: 3.2, bestCombo: 0,

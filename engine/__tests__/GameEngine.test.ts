@@ -7,12 +7,14 @@ import {
   applyLevelUpChoice,
   applyRelicChoice,
   buyShopItem,
+  buyEgg,
   evolveWeapon,
   startNextWave,
   extractHudData,
   resetIdCounter,
 } from '../GameEngine';
-import { WEAPON_EVOLVE_COST, WEAPON_EVOLVE_KILLS, WEAPON_MAX_LEVEL } from '../constants';
+import { WEAPON_EVOLVE_COST, WEAPON_EVOLVE_KILLS, WEAPON_MAX_LEVEL, PICKUP_BASE_RANGE } from '../constants';
+import type { Enemy, PetCompanion, PetKind } from '../types';
 
 jest.mock('../../services/audio', () => ({
   playSound: jest.fn(),
@@ -227,5 +229,80 @@ describe('weapon shop upgrades', () => {
     expect(startingWeapon.rarityMult).toBe(1.3);
     expect(state.materials).toBe(75);
     expect(state.shopSlots[0].bought).toBe(true);
+  });
+
+  it('applies the magnet item as a percentage of base pickup range', () => {
+    const state = initGameState('crab', 800, 600);
+    state.materials = 100;
+    state.shopSlots = [{
+      kind: 'item',
+      itemId: 'magnet',
+      rarity: 'common',
+      price: 10,
+      bought: false,
+      locked: false,
+      name: 'Magnet',
+      emoji: '🧲',
+      desc: '+15% Pickup Range',
+    }];
+    const before = state.player.pickupRange;
+
+    expect(buyShopItem(state, 0)).toBe(true);
+    expect(state.player.pickupRange).toBeCloseTo(before + PICKUP_BASE_RANGE * 0.15);
+  });
+});
+
+function makeTestPet(id: number, kind: PetKind, overrides: Partial<PetCompanion> = {}): PetCompanion {
+  return {
+    id, kind, x: 0, y: 0,
+    emoji: '🐚', name: `Pet ${id}`, color: '#2DD4BF', generation: 1,
+    attackName: 'Test', trait: 'Test', traitDesc: '',
+    level: 1, cooldownTimer: 5, radius: 12, damage: 3,
+    attackFlash: 0, action: 'idle', aimAngle: 0,
+    perks: [], barrierCooldown: 0,
+    ...overrides,
+  };
+}
+
+describe('brood', () => {
+  it('refuses egg purchase when the brood is full', () => {
+    const state = initGameState('crab', 800, 600);
+    state.materials = 999;
+    for (let i = 0; i < 5; i++) state.pets.push(makeTestPet(100 + i, 'snapper'));
+
+    expect(buyEgg(state)).toBe(false);
+    expect(state.materials).toBe(999);
+  });
+});
+
+describe('pet perks', () => {
+  it('mend_shield barrier absorbs one enemy contact hit', () => {
+    const state = initGameState('crab', 800, 600);
+    state.phase = 'playing';
+    const p = state.player;
+    p.dodge = 0;
+    state.pets.push(makeTestPet(9001, 'mender', {
+      x: p.x, y: p.y, level: 5,
+      perks: [{ id: 'mend_shield', name: 'Barrier', emoji: '🛡️', desc: 'Absorbs one hit every 8s' }],
+    }));
+    const enemy: Enemy = {
+      id: 9002, type: 'chaser', x: p.x, y: p.y,
+      hp: 9999, maxHp: 9999, speed: 0, damage: 25,
+      radius: 16, emoji: '👾', fontSize: 28, isBoss: false,
+      flashTimer: 0, knockbackX: 0, knockbackY: 0,
+      attackCooldown: 0, alive: true, elite: 'none',
+      shieldHp: 0, maxShieldHp: 0,
+      telegraphTimer: 0, telegraphMax: 0, telegraphType: 'none',
+      chargeTimer: 0, chargeCooldown: 0, chargeVx: 0, chargeVy: 0,
+      fireTrailTimer: 0,
+    };
+    state.enemies.push(enemy);
+    const hpBefore = p.hp;
+
+    updateGame(state, 1 / 60, { x: 0, y: 0 });
+
+    expect(p.hp).toBe(hpBefore);
+    expect(state.pets[0].barrierCooldown).toBeGreaterThan(0);
+    expect(p.invulnTimer).toBeGreaterThan(0);
   });
 });

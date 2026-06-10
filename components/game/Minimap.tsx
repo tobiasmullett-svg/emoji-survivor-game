@@ -37,7 +37,7 @@ export default function Minimap({ gameState, size = 120 }: Props) {
       ))}
 
       {/* Resource Nodes */}
-      {resourceNodes.map(r => (
+      {resourceNodes.filter(r => r.alive).map(r => (
         <View
           key={`res-${r.id}`}
           style={[
