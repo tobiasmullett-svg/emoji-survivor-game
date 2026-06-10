@@ -42,6 +42,7 @@ const PET_DEFS: Record<PetKind, { emoji: string; name: string; damage: number; c
   mender: { emoji: '🐚', name: 'Mender', damage: 3, cooldown: 1.5, range: 145, projEmoji: '✚', color: '#2DD4BF', attackName: 'Tide Mend', trait: 'Healer', traitDesc: 'Heals you when hurt; otherwise fires soft support shots.' },
 };
 const PET_MAX_LEVEL = 9;
+const PET_BARRIER_COOLDOWN = 8;
 const BOSS_EXTRA_TIME = 18;
 const RELIC_OFFER_WAVES = [5, 10, 15] as const;
 const CHARGER_MIN_RANGE = 70;
@@ -201,6 +202,39 @@ function hasPerk(pet: PetCompanion, perkId: string): boolean {
   return pet.perks.some(p => p.id === perkId);
 }
 
+/**
+ * Mender "Barrier" perk: a ready barrier fully absorbs one player hit,
+ * then goes on cooldown. Returns true if the hit was absorbed.
+ */
+function tryBarrierAbsorb(state: GameState): boolean {
+  for (const pet of state.pets) {
+    if (pet.barrierCooldown <= 0 && hasPerk(pet, 'mend_shield')) {
+      pet.barrierCooldown = PET_BARRIER_COOLDOWN;
+      pet.attackFlash = 1;
+      pet.action = 'heal';
+      state.player.invulnTimer = Math.max(state.player.invulnTimer, INVULN_TIME);
+      addDmgNum(state, state.player.x, state.player.y - 26, '🛡️ BARRIER', '#2DD4BF');
+      addEffect(state, state.player.x, state.player.y, 'ring', '#2DD4BF', 0, 46);
+      playSound('heal');
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Effective attack cadence and range for a pet, including level scaling and
+ * perks. Single source of truth shared by the combat loop and the shop UI.
+ */
+export function getPetAttackStats(pet: PetCompanion): { cooldown: number; range: number } {
+  const def = PET_DEFS[pet.kind];
+  let cooldown = def.cooldown * Math.max(0.62, 1 - (pet.level - 1) * 0.035);
+  if (hasPerk(pet, 'snap_rapid')) cooldown *= 0.8;
+  let range = def.range;
+  if (hasPerk(pet, 'spark_range')) range = Math.round(range * 1.3);
+  return { cooldown, range };
+}
+
 /** Count pets of each kind; 2+ of same kind triggers a synergy bonus. */
 export function getPetSynergies(pets: PetCompanion[]): { kind: PetKind; count: number; bonusPct: number }[] {
   const counts = new Map<PetKind, number>();
@@ -265,7 +299,7 @@ function getPetDamageRelicMult(state: GameState, enemy?: Enemy): number {
   return mult;
 }
 
-function getPickupRange(state: GameState): number {
+export function getPickupRange(state: GameState): number {
   let range = state.player.pickupRange;
   if (hasRelic(state, 'abyssalMagnet')) range *= 1.9;
   return range * (1 + state.player.luck * 0.01);
@@ -463,6 +497,12 @@ function updateCollecting(state: GameState, dt: number, input: Vec2): void {
   }
   checkPickupCollection(state);
   updateDmgNums(state, dt);
+  // Keep transient visuals (and any egg hatches collected at the wave end)
+  // animating instead of freezing mid-frame for the whole collect window.
+  updateEffects(state, dt);
+  updateDeathParticles(state, dt);
+  updateHatchAnimations(state, dt);
+  updateShake(state, dt);
   updateCamera(state, input, dt);
   state.wave.collectTimer -= dt;
   if (state.wave.collectTimer <= 0) {
@@ -760,6 +800,7 @@ function updatePets(state: GameState, dt: number): void {
     pet.x = lerp(pet.x, target.x, petSmooth);
     pet.y = lerp(pet.y, target.y, petSmooth);
     pet.cooldownTimer = Math.max(0, pet.cooldownTimer - dt);
+    if (pet.barrierCooldown > 0) pet.barrierCooldown = Math.max(0, pet.barrierCooldown - dt);
     if (pet.cooldownTimer > 0) return;
     const def = PET_DEFS[pet.kind];
     const synergyMult = 1 + (synergyMap.get(pet.kind) ?? 0) / 100;
@@ -788,21 +829,19 @@ function updatePets(state: GameState, dt: number): void {
       addEffect(state, p.x, p.y, 'heal', def.color, 0, 30 + pet.level * 2);
       return;
     }
-    let attackRange = def.range;
-    if (hasPerk(pet, 'spark_range')) attackRange = Math.round(attackRange * 1.3);
+    const { cooldown: attackCooldown, range: attackRange } = getPetAttackStats(pet);
     const nearest = findNearest(pet, state.enemies, attackRange);
     if (!nearest || state.projectiles.length >= MAX_PROJECTILES) return;
     const dir = norm(sub(nearest, pet));
-    let cdMult = Math.max(0.62, 1 - (pet.level - 1) * 0.035);
-    if (hasPerk(pet, 'snap_rapid')) cdMult *= 0.8;
-    pet.cooldownTimer = def.cooldown * cdMult;
+    pet.cooldownTimer = attackCooldown;
     pet.attackFlash = 1;
     pet.action = 'attack';
     pet.aimAngle = v2angle(dir);
     addEffect(state, pet.x, pet.y, pet.kind === 'spark' ? 'beam' : 'muzzle', def.color, pet.aimAngle, pet.kind === 'spark' ? Math.min(attackRange, dist(pet, nearest)) : 18);
     if (pet.kind === 'spark') addEffect(state, nearest.x, nearest.y, 'zap', def.color, 0, 24 + pet.level * 2);
     if (pet.kind === 'snapper' && pet.level >= 4) addEffect(state, pet.x, pet.y, 'slash', def.color, pet.aimAngle, 24 + pet.level * 2);
-    const baseDmg = pet.damage * p.damageMult * (1 + (pet.level - 1) * 0.32) * synergyMult * getPetDamageRelicMult(state, nearest);
+    let baseDmg = pet.damage * p.damageMult * (1 + (pet.level - 1) * 0.32) * synergyMult * getPetDamageRelicMult(state, nearest);
+    if (hasPerk(pet, 'snap_focus') && nearest.isBoss) baseDmg *= 1.4;
     const projSpeed = pet.kind === 'snapper' ? 420 : 360;
     const shotCount = hasPerk(pet, 'snap_double') ? 2 : 1;
     for (let si = 0; si < shotCount; si++) {
@@ -816,6 +855,7 @@ function updatePets(state: GameState, dt: number): void {
         damage: baseDmg,
         emoji: def.projEmoji, radius: 5 * levelScale, piercing: pet.kind === 'spark', hitIds: [],
         life: attackRange / 360, maxLife: attackRange / 360, isEnemy: false,
+        sourcePetId: pet.id,
       });
     }
   });
@@ -1014,12 +1054,13 @@ function dealDamage(state: GameState, enemy: Enemy, dmg: number, isCrit: boolean
     enemy.knockbackY = ((enemy.y - p.y) / d) * push;
   }
   
-  // Vampiric elite healing nearby allies
+  // Vampiric elite healing nearby allies. Scales off the damage that got
+  // through the shield, so fully-absorbed hits don't feed the heal.
   if (enemy.elite === 'vampiric' && enemy.hp > 0) {
     for (const e of state.enemies) {
       if (!e.alive || e.id === enemy.id) continue;
       if (dist(enemy, e) < 100 && e.hp < e.maxHp) {
-        e.hp = Math.min(e.maxHp, e.hp + Math.max(1, Math.round(actual * 0.15)));
+        e.hp = Math.min(e.maxHp, e.hp + Math.max(1, Math.round(overflow * 0.15)));
       }
     }
   }
@@ -1108,7 +1149,7 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
         dealDamage(state, e, enemy.maxHp * 0.3, false);
       }
     }
-    if (dist(enemy, state.player) < blastR + state.player.radius && state.player.invulnTimer <= 0) {
+    if (dist(enemy, state.player) < blastR + state.player.radius && state.player.invulnTimer <= 0 && !tryBarrierAbsorb(state)) {
       const blastDmg = Math.max(1, Math.round(8 - state.player.armor));
       state.player.hp -= blastDmg;
       state.player.invulnTimer = INVULN_TIME;
@@ -1234,13 +1275,15 @@ function checkProjectileHits(state: GameState): void {
         if (p.invulnTimer <= 0 && !p.abilityActive) {
           const dodgeRoll = rng(0, 100);
           if (dodgeRoll >= p.dodge) {
-            const dmg = Math.max(1, Math.round(proj.damage - p.armor));
-            p.hp -= dmg;
-            p.invulnTimer = INVULN_TIME;
-            state.stats.damageTaken += dmg;
-            state.stats.wasHit = true;
-            addDmgNum(state, p.x, p.y - 20, String(dmg), '#EF4444');
-            state.shake = { x: 0, y: 0, timer: 0.15, intensity: 5 };
+            if (!tryBarrierAbsorb(state)) {
+              const dmg = Math.max(1, Math.round(proj.damage - p.armor));
+              p.hp -= dmg;
+              p.invulnTimer = INVULN_TIME;
+              state.stats.damageTaken += dmg;
+              state.stats.wasHit = true;
+              addDmgNum(state, p.x, p.y - 20, String(dmg), '#EF4444');
+              state.shake = { x: 0, y: 0, timer: 0.15, intensity: 5 };
+            }
           } else {
             addDmgNum(state, p.x, p.y - 20, 'DODGE', '#06B6D4');
           }
@@ -1257,6 +1300,8 @@ function checkProjectileHits(state: GameState): void {
           const sourceWeapon = proj.sourceWeaponIndex !== undefined ? p.weapons[proj.sourceWeaponIndex] : undefined;
           const relicDamage = sourceWeapon ? proj.damage * getWeaponDamageRelicMult(state, e) : proj.damage;
           dealDamage(state, e, isCrit ? relicDamage * 2 : relicDamage, isCrit, sourceWeapon);
+          const sourcePet = proj.sourcePetId !== undefined ? state.pets.find(pet => pet.id === proj.sourcePetId) : undefined;
+          if (sourcePet) applyPetOnHitPerks(state, sourcePet, e, proj.damage, isCrit);
           if (proj.piercing) {
             proj.hitIds.push(e.id);
           } else {
@@ -1279,6 +1324,34 @@ function checkProjectileHits(state: GameState): void {
   }
 }
 
+/**
+ * On-hit effects for pet projectiles.
+ * spark_chain: arcs reduced damage to up to 2 other enemies near the impact.
+ * spark_overload: crits detonate in a small area around the target.
+ */
+function applyPetOnHitPerks(state: GameState, pet: PetCompanion, target: Enemy, projDamage: number, isCrit: boolean): void {
+  if (hasPerk(pet, 'spark_chain')) {
+    let arcsLeft = 2;
+    for (const other of state.enemies) {
+      if (arcsLeft <= 0) break;
+      if (!other.alive || other.id === target.id) continue;
+      if (dist(target, other) > 90 + other.radius) continue;
+      arcsLeft--;
+      addEffect(state, other.x, other.y, 'zap', pet.color, 0, 22);
+      dealDamage(state, other, projDamage * 0.4, false);
+    }
+  }
+  if (isCrit && hasPerk(pet, 'spark_overload')) {
+    const blastR = 70;
+    addEffect(state, target.x, target.y, 'burst', pet.color, 0, blastR);
+    for (const other of state.enemies) {
+      if (!other.alive || other.id === target.id) continue;
+      if (dist(target, other) > blastR + other.radius) continue;
+      dealDamage(state, other, projDamage * 0.5, false);
+    }
+  }
+}
+
 // ═══ ENEMY-PLAYER COLLISION ═══
 function checkEnemyPlayerHits(state: GameState): void {
   const p = state.player;
@@ -1289,17 +1362,19 @@ function checkEnemyPlayerHits(state: GameState): void {
     if (d < p.radius + e.radius) {
       const dodgeRoll = rng(0, 100);
       if (dodgeRoll >= p.dodge) {
-        let dmg = Math.max(1, Math.round(e.damage - p.armor));
-        if (e.chargeTimer > 0) dmg = Math.round(dmg * 1.35);
-        if (state.waveModifier === 'hazardous') dmg = Math.round(dmg * 1.4);
-        p.hp -= dmg;
-        p.invulnTimer = INVULN_TIME;
-        state.stats.damageTaken += dmg;
-        state.stats.wasHit = true;
-        addDmgNum(state, p.x, p.y - 20, String(dmg), '#EF4444');
-        state.shake = { x: 0, y: 0, timer: 0.25, intensity: 7 };
-        state.hitStop = Math.max(state.hitStop, HIT_STOP_DURATION);
-        haptic('medium');
+        if (!tryBarrierAbsorb(state)) {
+          let dmg = Math.max(1, Math.round(e.damage - p.armor));
+          if (e.chargeTimer > 0) dmg = Math.round(dmg * 1.35);
+          if (state.waveModifier === 'hazardous') dmg = Math.round(dmg * 1.4);
+          p.hp -= dmg;
+          p.invulnTimer = INVULN_TIME;
+          state.stats.damageTaken += dmg;
+          state.stats.wasHit = true;
+          addDmgNum(state, p.x, p.y - 20, String(dmg), '#EF4444');
+          state.shake = { x: 0, y: 0, timer: 0.25, intensity: 7 };
+          state.hitStop = Math.max(state.hitStop, HIT_STOP_DURATION);
+          haptic('medium');
+        }
       } else {
         addDmgNum(state, p.x, p.y - 20, 'DODGE', '#06B6D4');
         p.invulnTimer = 0.2;
@@ -1386,15 +1461,17 @@ function updateHazards(state: GameState, dt: number): void {
     // Tick lifetime for temporary hazards (fire trails)
     if (h.life !== undefined) h.life -= dt;
     if (p.invulnTimer <= 0 && !p.abilityActive && dist(p, h) < p.radius + h.radius * 0.72) {
-      const dmg = Math.max(1, Math.round(h.damage - p.armor * 0.5));
-      p.hp -= dmg;
-      p.invulnTimer = INVULN_TIME;
-      state.stats.damageTaken += dmg;
-      state.stats.wasHit = true;
-      addDmgNum(state, p.x, p.y - 22, String(dmg), '#FB923C');
-      addEffect(state, h.x, h.y, 'ring', '#FB923C', 0, h.radius);
-      state.shake = { x: 0, y: 0, timer: 0.18, intensity: 6 };
-      state.hitStop = Math.max(state.hitStop, HIT_STOP_DURATION);
+      if (!tryBarrierAbsorb(state)) {
+        const dmg = Math.max(1, Math.round(h.damage - p.armor * 0.5));
+        p.hp -= dmg;
+        p.invulnTimer = INVULN_TIME;
+        state.stats.damageTaken += dmg;
+        state.stats.wasHit = true;
+        addDmgNum(state, p.x, p.y - 22, String(dmg), '#FB923C');
+        addEffect(state, h.x, h.y, 'ring', '#FB923C', 0, h.radius);
+        state.shake = { x: 0, y: 0, timer: 0.18, intensity: 6 };
+        state.hitStop = Math.max(state.hitStop, HIT_STOP_DURATION);
+      }
     }
   }
   // Remove expired temporary hazards
@@ -1447,8 +1524,9 @@ function hatchPet(state: GameState): void {
   const kinds: PetKind[] = ['snapper', 'spark', 'mender'];
   const kind = kinds[rngInt(0, kinds.length - 1)];
   const def = PET_DEFS[kind];
-  if (state.pets.length >= MAX_PETS) {
+  if (state.pets.length + state.pendingHatches.length >= MAX_PETS) {
     state.materials += 12;
+    state.stats.materialsCollected += 12;
     addDmgNum(state, state.player.x, state.player.y - 36, '+12 overflow', '#FBBF24');
     return;
   }
@@ -1494,6 +1572,7 @@ function updateHatchAnimations(state: GameState, dt: number): void {
         level: 1, cooldownTimer: rng(0, 0.4), radius: 12, damage: def.damage,
         attackFlash: 0, action: 'idle', aimAngle: 0,
         perks: [],
+        barrierCooldown: 0,
       };
       state.pets.push(pet);
       addDmgNum(state, hatch.x, hatch.y - 42, `${data.name} joined!`, def.color);
@@ -1902,7 +1981,8 @@ function applyStatChange(p: PlayerState, stat: string, amount: number): void {
     case 'harvesting': p.harvesting += amount; break;
     case 'attackSpeed': p.attackSpeedMult = Math.min(STAT_CAPS.attackSpeedMult, p.attackSpeedMult + amount / 100); break;
     case 'critChance': p.critChance = Math.min(STAT_CAPS.critChance, p.critChance + amount); break;
-    case 'pickupRange': p.pickupRange += amount; break;
+    // The magnet item advertises a percentage, so scale off the base range.
+    case 'pickupRange': p.pickupRange += PICKUP_BASE_RANGE * amount / 100; break;
     case 'heal': p.hp = Math.min(p.maxHp, p.hp + Math.round(p.maxHp * amount / 100)); break;
   }
 }
@@ -2107,6 +2187,9 @@ export function healPlayer(state: GameState): boolean {
 }
 
 export function buyEgg(state: GameState): boolean {
+  // Refuse the sale outright when the brood is full — hatching would only
+  // refund a fraction of the cost as overflow materials.
+  if (state.pets.length + state.pendingHatches.length >= MAX_PETS) return false;
   const cost = 18 + state.pets.length * 6 + state.wave.number * 2;
   if (state.materials < cost) return false;
   state.materials -= cost;
