@@ -20,6 +20,8 @@ export type RelicId =
 
 export interface PlayerState {
   x: number; y: number;
+  /** Smoothed movement velocity (px/s) — eases toward input direction. */
+  moveVx: number; moveVy: number;
   hp: number; maxHp: number;
   baseSpeed: number; speedMult: number;
   damageMult: number; armor: number;
@@ -78,6 +80,8 @@ export interface Enemy {
 export interface Projectile {
   id: number;
   x: number; y: number;
+  /** Position before the latest move, for swept (anti-tunneling) hit tests. */
+  prevX?: number; prevY?: number;
   vx: number; vy: number;
   damage: number; emoji: string;
   radius: number; piercing: boolean;
@@ -294,6 +298,8 @@ export interface GameState {
   prevInWater: boolean;
   oxygenDamageTimer: number;
   obstacleBumpTimer: number;
+  /** Min spacing between crit-triggered freeze frames, so rapid crit builds don't judder. */
+  critStopCooldown: number;
 }
 
 export interface CharacterDef {

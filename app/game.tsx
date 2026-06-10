@@ -198,7 +198,9 @@ export default function GameScreen() {
         let aliveEnemies = 0;
         for (const enemy of state.enemies) if (enemy.alive) aliveEnemies++;
         const sceneLoad = aliveEnemies + state.projectiles.length + state.effects.length + state.dmgNums.length;
-        const crowdedScene = state.wave.number >= 7 || sceneLoad > 95;
+        // Throttle rendering by actual entity load, not wave number — late
+        // waves on capable devices should still render at full rate.
+        const crowdedScene = sceneLoad > 95;
         const renderIntervalMs = activeGameplay ? (crowdedScene ? 33 : 16) : 120;
         const hudIntervalMs = crowdedScene ? 160 : 100;
         if (ts - lastRenderTs >= renderIntervalMs) {
