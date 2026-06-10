@@ -2,7 +2,8 @@ import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import type { GameState } from '../../engine/types';
 import { ELITE_EMOJIS, ELITE_COLORS } from '../../engine/data';
-import { PICKUP_BASE_RANGE } from '../../engine/constants';
+import { CRIT_HIT_STOP } from '../../engine/constants';
+import { getPickupRange } from '../../engine/GameEngine';
 import ArenaBackground from './arena/ArenaBackground';
 import WeaponIcon, { hasWeaponIcon } from './WeaponIcon';
 
@@ -18,8 +19,9 @@ function DangerVignette({ frame }: { frame: number }) {
   );
 }
 
-function CritFlash({ frame }: { frame: number }) {
-  const opacity = Math.max(0, 1 - (frame % 20) * 0.15);
+function CritFlash({ hitStop }: { hitStop: number }) {
+  // Fade with the remaining hit-stop so the flash decays deterministically.
+  const opacity = Math.min(1, hitStop / CRIT_HIT_STOP);
   if (opacity <= 0) return null;
   return <View style={[s.critFlash, { opacity }]} />;
 }
@@ -44,8 +46,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const visibleEffects = (effects ?? []).filter(fx => vis(fx.x, fx.y));
   const visibleDeathParticles = (deathParticles ?? []).filter(dp => vis(dp.x, dp.y));
   const visibleDmgNums = (dmgNums ?? []).filter(d => vis(d.x, d.y));
-  const relicIds = new Set((state.relics ?? []).map(relic => relic.id));
-  const effectivePickupRange = p.pickupRange * (relicIds.has('abyssalMagnet') ? 1.9 : 1) * (1 + p.luck * 0.01);
+  const effectivePickupRange = getPickupRange(state);
   const crowded = state.wave.number >= 5 || visibleEnemies.length + visibleProjectiles.length > 45 || visibleEffects.length + visibleDmgNums.length > 35;
   const displayProjectiles = crowded ? visibleProjectiles.slice(0, 48) : visibleProjectiles;
   const displayEffects = crowded ? visibleEffects.filter(fx => fx.kind !== 'muzzle' && fx.kind !== 'spark').slice(-14) : visibleEffects;
@@ -709,7 +710,7 @@ export default function GameCanvas({ gameState, frame }: Props) {
       )}
       <OffScreenMarkers state={state} />
       {(p.hp / p.maxHp) < 0.32 && <DangerVignette frame={frame} />}
-      {showCritFlash && <CritFlash frame={frame} />}
+      {showCritFlash && <CritFlash hitStop={state.hitStop} />}
       {state.waveModifier === 'denseFog' && (
         <View style={s.fogOverlay} pointerEvents="none">
           <View style={s.fogVignette} />

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { View, Text, Pressable, StyleSheet, ScrollView } from 'react-native';
 import type { GameState } from '../../engine/types';
 import { RARITY_COLORS, WEAPON_EVOLVE_KILLS, WEAPON_EVOLVE_COST, WEAPON_MAX_LEVEL } from '../../engine/constants';
-import { buyShopItem, rerollShop, healPlayer, buyEgg, trainPets, fusePets, evolveWeapon, getPetSynergies, toggleShopSlotLock } from '../../engine/GameEngine';
+import { buyShopItem, rerollShop, healPlayer, buyEgg, trainPets, fusePets, evolveWeapon, getPetSynergies, getPetAttackStats, toggleShopSlotLock } from '../../engine/GameEngine';
 import { WEAPONS, EVOLVED_WEAPONS, ITEM_DEFS } from '../../engine/data';
 import WeaponIcon, { hasWeaponIcon } from './WeaponIcon';
 
@@ -34,17 +34,6 @@ const PET_DETAILS: Record<string, { upgrade: string; breed: string }> = {
   },
 };
 
-function getPetCooldown(level: number, kind: string): string {
-  const base = kind === 'snapper' ? 0.85 : kind === 'spark' ? 1.2 : 1.5;
-  return (base * Math.max(0.62, 1 - (level - 1) * 0.035)).toFixed(2);
-}
-
-function getPetRange(kind: string): number {
-  if (kind === 'spark') return 180;
-  if (kind === 'mender') return 145;
-  return 130;
-}
-
 export default function ShopOverlay({ gameState, onNextWave }: Props) {
   const [, force] = useState(0);
   const [broodNotice, setBroodNotice] = useState('');
@@ -54,6 +43,7 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
   if (!state) return null;
   const { shopSlots, materials, player, wave, rerollCost, healCost } = state;
   const canHeal = player.hp < player.maxHp;
+  const broodFull = state.pets.length + state.pendingHatches.length >= 5;
   const eggCost = 18 + state.pets.length * 6 + wave.number * 2;
   const trainCost = 10 + state.pets.reduce((sum, pet) => sum + pet.level * 4, 0);
   const canTrain = state.pets.length > 0 && state.pets.some(pet => pet.level < 9);
@@ -202,6 +192,7 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
                 <Text style={s.emptyPetText}>Find eggs in the arena or buy one here.</Text>
               ) : state.pets.map(pet => {
                 const detail = PET_DETAILS[pet.kind];
+                const attackStats = getPetAttackStats(pet);
                 const nextPower = pet.level >= 9 ? 'Max trained' : `Next: Pow ${Math.round(pet.damage + 1 + Math.floor((pet.level + 1) / 4))}`;
                 const nextPerkLevel = [3, 5, 7].find(l => l > pet.level);
                 return (
@@ -219,7 +210,7 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
                         <Text style={s.petName}>{pet.name}</Text>
                         <Text style={[s.generationTag, { backgroundColor: pet.color ?? '#2DD4BF' }]}>Gen {pet.generation ?? 1}</Text>
                       </View>
-                      <Text style={s.petLevel}>Lv.{pet.level} · Pow {Math.round(pet.damage)} · {getPetCooldown(pet.level, pet.kind)}s · R{getPetRange(pet.kind)}</Text>
+                      <Text style={s.petLevel}>Lv.{pet.level} · Pow {Math.round(pet.damage)} · {attackStats.cooldown.toFixed(2)}s · R{attackStats.range}</Text>
                       <Text style={s.petTrait}>{pet.attackName}: {PET_TRAITS[pet.kind] ?? 'Companion'}</Text>
                       {(pet.perks?.length ?? 0) > 0 && (
                         <View style={s.perkRow}>
@@ -254,15 +245,14 @@ export default function ShopOverlay({ gameState, onNextWave }: Props) {
               <Pressable
                 onPress={() => {
                   if (buyEgg(state)) {
-                    const newest = state.pets[state.pets.length - 1];
-                    setBroodNotice(newest ? `${newest.name} joined the brood` : '+12 overflow materials');
+                    setBroodNotice('A new egg is hatching…');
                     force(n => n + 1);
                   }
                 }}
-                disabled={(materials ?? 0) < eggCost}
-                style={[s.actionBtn, (materials ?? 0) < eggCost && s.disabled]}
+                disabled={broodFull || (materials ?? 0) < eggCost}
+                style={[s.actionBtn, (broodFull || (materials ?? 0) < eggCost) && s.disabled]}
               >
-                <Text style={s.actionText}>🥚 Egg (🔩{eggCost})</Text>
+                <Text style={s.actionText}>{broodFull ? '🥚 Brood Full' : `🥚 Egg (🔩${eggCost})`}</Text>
               </Pressable>
               <Pressable
                 onPress={() => {

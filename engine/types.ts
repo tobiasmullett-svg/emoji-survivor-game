@@ -108,6 +108,8 @@ export interface Projectile {
   life: number; maxLife: number;
   isEnemy: boolean;
   sourceWeaponIndex?: number;
+  /** Pet that fired this projectile, for on-hit perk effects. */
+  sourcePetId?: number;
 }
 
 export interface Pickup {
@@ -154,6 +156,8 @@ export interface PetCompanion {
   action: 'idle' | 'attack' | 'heal';
   aimAngle: number;
   perks: PetPerk[];
+  /** Seconds until the mend_shield barrier can absorb another hit. */
+  barrierCooldown: number;
 }
 
 export interface DmgNum {
