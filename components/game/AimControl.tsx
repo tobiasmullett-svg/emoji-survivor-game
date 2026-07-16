@@ -1,66 +1,19 @@
-import React, { useRef, useState } from 'react';
-import { View, PanResponder, StyleSheet, useWindowDimensions } from 'react-native';
+import React from 'react';
+import { View, StyleSheet, useWindowDimensions } from 'react-native';
 
 interface Props {
-  onInput: (value: { x: number; y: number } | undefined) => void;
+  knob: { x: number; y: number };
+  active: boolean;
 }
 
 const OUTER_R = 55;
 const KNOB_R = 24;
-const MAX_D = 40;
 const CONTROL_SIZE = OUTER_R * 2;
-// Fraction of MAX_D ignored so resting-thumb jitter does not change aim.
-const DEAD_ZONE = 0.12;
 
-export default function AimControl({ onInput }: Props) {
+/** Visual-only aim stick. GameTouchControls owns all mobile touch input. */
+export default function AimControl({ knob, active }: Props) {
   const { width } = useWindowDimensions();
-  const [knob, setKnob] = useState({ x: 0, y: 0 });
-  const [active, setActive] = useState(false);
   const isNarrow = width < 375;
-
-  const clearInput = () => {
-    setKnob({ x: 0, y: 0 });
-    setActive(false);
-    onInput(undefined);
-  };
-
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => {
-        // A touch can begin without moving; clear any prior mouse direction so
-        // it cannot keep firing while the thumb is resting in the dead zone.
-        setKnob({ x: 0, y: 0 });
-        setActive(true);
-        onInput(undefined);
-      },
-      onPanResponderMove: (_, gs) => {
-        const distance = Math.sqrt(gs.dx * gs.dx + gs.dy * gs.dy);
-        const clampedDistance = Math.min(distance, MAX_D);
-        const angle = Math.atan2(gs.dy, gs.dx);
-        const x = distance > 0 ? Math.cos(angle) * clampedDistance : 0;
-        const y = distance > 0 ? Math.sin(angle) * clampedDistance : 0;
-        setKnob({ x, y });
-
-        const outputX = x / MAX_D;
-        const outputY = y / MAX_D;
-        const outputLength = Math.sqrt(outputX * outputX + outputY * outputY);
-        if (outputLength <= DEAD_ZONE) {
-          onInput(undefined);
-          return;
-        }
-
-        // Normalize diagonals, then rescale the remaining travel like movement.
-        const directionX = outputX / outputLength;
-        const directionY = outputY / outputLength;
-        const scale = Math.min((outputLength - DEAD_ZONE) / (1 - DEAD_ZONE), 1);
-        onInput({ x: directionX * scale, y: directionY * scale });
-      },
-      onPanResponderRelease: clearInput,
-      onPanResponderTerminate: clearInput,
-    })
-  ).current;
 
   return (
     <View
@@ -68,9 +21,9 @@ export default function AimControl({ onInput }: Props) {
         styles.container,
         isNarrow ? styles.narrowContainer : styles.wideContainer,
       ]}
-      pointerEvents="box-none"
+      pointerEvents="none"
     >
-      <View {...pan.panHandlers} style={[styles.outer, active && styles.outerActive]}>
+      <View style={[styles.outer, active && styles.outerActive]}>
         <View pointerEvents="none" style={styles.crosshair}>
           <View style={styles.crosshairHorizontal} />
           <View style={styles.crosshairVertical} />
@@ -96,11 +49,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     zIndex: 10,
   },
-  // At 375px: movement responder ends at x=170, aim is x=175..285,
+  // At 375px: movement ends at x=170, aim is x=175..285,
   // and the ability begins at x=291.
   wideContainer: { bottom: 30, right: 90 },
   // On compact widths, keep the full-size aim pad in its own band above the
-  // bottom movement/ability controls instead of letting responder bounds meet.
+  // bottom movement/ability controls.
   narrowContainer: { bottom: 190, right: 20 },
   outer: {
     width: OUTER_R * 2,

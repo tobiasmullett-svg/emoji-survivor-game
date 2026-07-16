@@ -5,26 +5,51 @@ interface Props {
   emoji: string;
   cooldown: number;
   maxCooldown: number;
-  onPress: () => void;
+  /** Only supplied for the web-only mouse-accessible ability button. */
+  onPress?: () => void;
 }
 
+/**
+ * Ability visual used by the native shared touch coordinator. On web it can
+ * remain a normal click target without adding a mobile responder owner.
+ */
 export default function AbilityButton({ emoji, cooldown, maxCooldown, onPress }: Props) {
   const ready = (cooldown ?? 0) <= 0;
   const cdPct = maxCooldown > 0 ? Math.max(0, (cooldown ?? 0) / maxCooldown) : 0;
-  return (
-    <Pressable
-      onPress={onPress}
-      disabled={!ready}
-      style={[s.btn, !ready && s.btnCd]}
-      accessibilityLabel="Ability" accessibilityRole="button"
-    >
+  const contents = (
+    <>
       {ready && <View style={s.readyGlow} />}
       <Text style={s.emoji}>{emoji ?? '\u2B50'}</Text>
       {!ready && (
         <View style={[s.cdOverlay, { height: `${cdPct * 100}%` }]} />
       )}
       {!ready && <Text style={s.cdText}>{Math.ceil(cooldown ?? 0)}s</Text>}
-    </Pressable>
+    </>
+  );
+
+  if (onPress) {
+    return (
+      <Pressable
+        onPress={onPress}
+        disabled={!ready}
+        style={[s.btn, !ready && s.btnCd]}
+        accessibilityLabel="Ability"
+        accessibilityRole="button"
+      >
+        {contents}
+      </Pressable>
+    );
+  }
+
+  return (
+    <View
+      pointerEvents="none"
+      style={[s.btn, !ready && s.btnCd]}
+      accessibilityLabel="Ability"
+      accessibilityRole="button"
+    >
+      {contents}
+    </View>
   );
 }
 

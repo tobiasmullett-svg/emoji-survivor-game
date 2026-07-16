@@ -21,10 +21,9 @@ import {
 import { calculateRunScore } from '../engine/scoring';
 import { getDefaultSkinId, getSkinById, getSkinEmoji } from '../engine/skins';
 import GameCanvas from '../components/game/GameCanvas';
-import VirtualJoystick from '../components/game/VirtualJoystick';
-import AimControl from '../components/game/AimControl';
 import HUD from '../components/game/HUD';
 import AbilityButton from '../components/game/AbilityButton';
+import GameTouchControls from '../components/game/GameTouchControls';
 import PauseOverlay from '../components/game/PauseOverlay';
 import LevelUpModal from '../components/game/LevelUpModal';
 import RelicModal from '../components/game/RelicModal';
@@ -122,7 +121,10 @@ export default function GameScreen() {
   // must explicitly stop retaining a manual aim when gameplay is blocked.
   useEffect(() => {
     inputEnabledRef.current = inputEnabled;
-    if (!inputEnabled) aimInputRef.current = undefined;
+    if (!inputEnabled) {
+      movementInputRef.current = { x: 0, y: 0 };
+      aimInputRef.current = undefined;
+    }
   }, [inputEnabled]);
 
   // Auto-dismiss controls hint after 5 seconds
@@ -604,14 +606,23 @@ export default function GameScreen() {
           <HUD data={activeHudData} onPause={handlePause} />
           {inputEnabled && (
             <>
-              <VirtualJoystick onInput={handleMovementInput} />
-              <AimControl onInput={handleAimInput} />
-              <AbilityButton
-                emoji={activeHudData?.abilityEmoji ?? '\u2B50'}
-                cooldown={activeHudData?.abilityCd ?? 0}
-                maxCooldown={activeHudData?.abilityMaxCd ?? 30}
-                onPress={handleAbility}
-              />
+              {Platform.OS === 'web' ? (
+                <AbilityButton
+                  emoji={activeHudData?.abilityEmoji ?? '\u2B50'}
+                  cooldown={activeHudData?.abilityCd ?? 0}
+                  maxCooldown={activeHudData?.abilityMaxCd ?? 30}
+                  onPress={handleAbility}
+                />
+              ) : (
+                <GameTouchControls
+                  emoji={activeHudData?.abilityEmoji ?? '\u2B50'}
+                  cooldown={activeHudData?.abilityCd ?? 0}
+                  maxCooldown={activeHudData?.abilityMaxCd ?? 30}
+                  onMovementInput={handleMovementInput}
+                  onAimInput={handleAimInput}
+                  onActivateAbility={handleAbility}
+                />
+              )}
             </>
           )}
           {Platform.OS === 'web' && showControlsHint && (

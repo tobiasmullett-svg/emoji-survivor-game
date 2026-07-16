@@ -1,61 +1,19 @@
-import React, { useRef, useState } from 'react';
-import { View, PanResponder, StyleSheet } from 'react-native';
+import React from 'react';
+import { View, StyleSheet } from 'react-native';
 
 interface Props {
-  onInput: (v: { x: number; y: number }) => void;
+  knob: { x: number; y: number };
+  active: boolean;
 }
 
 const OUTER_R = 55;
 const KNOB_R = 24;
-const MAX_D = 40;
-// Fraction of MAX_D ignored so resting-thumb jitter doesn't cause drift.
-const DEAD_ZONE = 0.12;
 
-export default function VirtualJoystick({ onInput }: Props) {
-  const [knob, setKnob] = useState({ x: 0, y: 0 });
-  const [active, setActive] = useState(false);
-
-  const pan = useRef(
-    PanResponder.create({
-      onStartShouldSetPanResponder: () => true,
-      onMoveShouldSetPanResponder: () => true,
-      onPanResponderGrant: () => setActive(true),
-      onPanResponderMove: (_, gs) => {
-        const d = Math.sqrt(gs.dx * gs.dx + gs.dy * gs.dy);
-        const cd = Math.min(d, MAX_D);
-        const a = Math.atan2(gs.dy, gs.dx);
-        const kx = d > 0 ? Math.cos(a) * cd : 0;
-        const ky = d > 0 ? Math.sin(a) * cd : 0;
-        setKnob({ x: kx, y: ky });
-        // Normalize so diagonal movement isn't ~41% faster
-        const outX = kx / MAX_D;
-        const outY = ky / MAX_D;
-        const outLen = Math.sqrt(outX * outX + outY * outY);
-        const normX = outLen > 0 ? outX / outLen : 0;
-        const normY = outLen > 0 ? outY / outLen : 0;
-        // Dead zone, then rescale the remaining travel to the full 0..1 range.
-        const scale = outLen <= DEAD_ZONE ? 0 : Math.min((outLen - DEAD_ZONE) / (1 - DEAD_ZONE), 1);
-        onInput({ x: normX * scale, y: normY * scale });
-      },
-      onPanResponderRelease: () => {
-        setKnob({ x: 0, y: 0 });
-        setActive(false);
-        onInput({ x: 0, y: 0 });
-      },
-      onPanResponderTerminate: () => {
-        setKnob({ x: 0, y: 0 });
-        setActive(false);
-        onInput({ x: 0, y: 0 });
-      },
-    })
-  ).current;
-
+/** Visual-only movement stick. GameTouchControls owns all mobile touch input. */
+export default function VirtualJoystick({ knob, active }: Props) {
   return (
-    <View style={styles.container} pointerEvents="box-none">
-      <View
-        {...pan.panHandlers}
-        style={[styles.outer, active && styles.outerActive]}
-      >
+    <View style={styles.container} pointerEvents="none">
+      <View style={[styles.outer, active && styles.outerActive]}>
         <View
           style={[
             styles.knob,
