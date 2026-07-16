@@ -22,6 +22,7 @@ import { calculateRunScore } from '../engine/scoring';
 import { getDefaultSkinId, getSkinById, getSkinEmoji } from '../engine/skins';
 import GameCanvas from '../components/game/GameCanvas';
 import VirtualJoystick from '../components/game/VirtualJoystick';
+import AimControl from '../components/game/AimControl';
 import HUD from '../components/game/HUD';
 import AbilityButton from '../components/game/AbilityButton';
 import PauseOverlay from '../components/game/PauseOverlay';
@@ -85,7 +86,8 @@ export default function GameScreen() {
   const currentRunKey = `${routeCharacterId ?? ''}:${routeSkinId ?? ''}:${routeRunId ?? 'legacy'}`;
   const gameRef = useRef<GameState | null>(null);
   const emptyGameRef = useRef<GameState | null>(null);
-  const inputRef = useRef<Vec2>({ x: 0, y: 0 });
+  const movementInputRef = useRef<Vec2>({ x: 0, y: 0 });
+  const aimInputRef = useRef<Vec2 | undefined>(undefined);
   const keysRef = useRef<Set<string>>(new Set());
   const phaseRef = useRef<GamePhase>('waveAnnounce');
   const [frame, setFrame] = useState(0);
@@ -97,16 +99,31 @@ export default function GameScreen() {
   const [showControlsHint, setShowControlsHint] = useState<boolean>(Platform.OS === 'web');
   const [showTutorial, setShowTutorial] = useState(false);
   const showTutorialRef = useRef(false);
+  const inputEnabledRef = useRef(false);
   const scoreSaved = useRef(false);
   const achievementsChecked = useRef(false);
   const isFocusedRef = useRef(isFocused);
   const isCurrentRunInitialized = initializedRunKey === currentRunKey && gameRef.current !== null;
   const phase = phaseState.runKey === currentRunKey ? phaseState.phase : 'waveAnnounce';
   const unlockedSetRef = useRef<Set<string>>(new Set());
+  const canRenderActiveRun = isFocused && isCurrentRunInitialized;
+  const activePhase = canRenderActiveRun ? phase : isFocused ? 'waveAnnounce' : null;
+  const activeHudData = canRenderActiveRun ? hudData : defaultHud;
+  const activeGameRef = canRenderActiveRun ? gameRef : emptyGameRef;
+  const isGameplay = activePhase === 'playing' || activePhase === 'waveAnnounce' || activePhase === 'collecting';
+  const inputEnabled = canRenderActiveRun && isGameplay && !showTutorial;
+  const state = canRenderActiveRun ? gameRef.current : null;
 
   useEffect(() => {
     showTutorialRef.current = showTutorial;
   }, [showTutorial]);
+
+  // Global web listeners are outside the React Native overlay stack, so they
+  // must explicitly stop retaining a manual aim when gameplay is blocked.
+  useEffect(() => {
+    inputEnabledRef.current = inputEnabled;
+    if (!inputEnabled) aimInputRef.current = undefined;
+  }, [inputEnabled]);
 
   // Auto-dismiss controls hint after 5 seconds
   useEffect(() => {
@@ -134,6 +151,8 @@ export default function GameScreen() {
     const requestedSkin = routeSkinId;
     setInitializedRunKey(null);
     gameRef.current = null;
+    movementInputRef.current = { x: 0, y: 0 };
+    aimInputRef.current = undefined;
     phaseRef.current = 'waveAnnounce';
     setPhaseState({ runKey: currentRunKey, phase: 'waveAnnounce' });
     setHudData(defaultHud);
@@ -184,7 +203,10 @@ export default function GameScreen() {
         }
         const ph = state.phase;
         if (!showTutorialRef.current && (ph === 'playing' || ph === 'waveAnnounce' || ph === 'collecting')) {
-          updateGame(state, dt, inputRef.current);
+          updateGame(state, dt, {
+            movement: movementInputRef.current,
+            aim: aimInputRef.current,
+          });
         }
         const p = state.player;
         const activeGameplay = ph === 'playing' || ph === 'waveAnnounce' || ph === 'collecting';
@@ -350,7 +372,8 @@ export default function GameScreen() {
     return () => sub.remove();
   }, [currentRunKey]);
 
-  const handleInput = useCallback((v: Vec2) => { inputRef.current = v; }, []);
+  const handleMovementInput = useCallback((v: Vec2) => { movementInputRef.current = v; }, []);
+  const handleAimInput = useCallback((v: Vec2 | undefined) => { aimInputRef.current = v; }, []);
 
   const handlePause = useCallback(() => {
     const state = gameRef.current;
@@ -368,6 +391,8 @@ export default function GameScreen() {
     const requestedSkin = routeSkinId;
     setInitializedRunKey(null);
     gameRef.current = null;
+    movementInputRef.current = { x: 0, y: 0 };
+    aimInputRef.current = undefined;
     phaseRef.current = 'waveAnnounce';
     setPhaseState({ runKey: currentRunKey, phase: 'waveAnnounce' });
     setHudData(defaultHud);
@@ -392,7 +417,12 @@ export default function GameScreen() {
 
   const handleAbility = useCallback(() => {
     const state = gameRef.current;
-    if (state) activateAbility(state, inputRef.current);
+    if (state) {
+      activateAbility(state, {
+        movement: movementInputRef.current,
+        aim: aimInputRef.current,
+      });
+    }
   }, []);
 
   const handleLevelUp = useCallback((idx: number) => {
@@ -445,10 +475,52 @@ export default function GameScreen() {
       if (keys.has('arrowup') || keys.has('w')) y -= 1;
       if (keys.has('arrowdown') || keys.has('s')) y += 1;
       const l = Math.sqrt(x * x + y * y);
-      inputRef.current = l > 0 ? { x: x / l, y: y / l } : { x: 0, y: 0 };
+      movementInputRef.current = l > 0 ? { x: x / l, y: y / l } : { x: 0, y: 0 };
     };
 
+    const clearMouseAim = () => {
+      aimInputRef.current = undefined;
+    };
+
+    const updateMouseAim = (clientX: number, clientY: number) => {
+      if (!inputEnabledRef.current) {
+        clearMouseAim();
+        return;
+      }
+      const state = gameRef.current;
+      const player = state?.player;
+      if (!state || !player) return;
+
+      const playerScreen = {
+        x: player.x - state.camera.x + state.sw / 2,
+        y: player.y - state.camera.y + state.sh / 2,
+      };
+      const x = clientX - playerScreen.x;
+      const y = clientY - playerScreen.y;
+      const length = Math.sqrt(x * x + y * y);
+      aimInputRef.current = length > 0 ? { x: x / length, y: y / length } : undefined;
+      setShowControlsHint(false);
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (event.pointerType === 'touch') return;
+      updateMouseAim(event.clientX, event.clientY);
+    };
+
+    const onPointerOut = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch' && !event.relatedTarget) clearMouseAim();
+    };
+
+    const onMouseMove = (event: MouseEvent) => {
+      updateMouseAim(event.clientX, event.clientY);
+    };
+
+    const supportsPointerEvents = typeof window.PointerEvent !== 'undefined';
+
     const onKeyDown = (event: KeyboardEvent) => {
+      // Let modal controls receive their normal keyboard activation rather
+      // than hijacking Space/Escape while gameplay input is unavailable.
+      if (!inputEnabledRef.current) return;
       const key = event.key.toLowerCase();
       if (['arrowleft', 'arrowright', 'arrowup', 'arrowdown', 'a', 'd', 'w', 's', ' '].includes(key)) {
         event.preventDefault();
@@ -473,22 +545,38 @@ export default function GameScreen() {
       updateKeyboardInput();
     };
 
+    const onWindowBlur = () => {
+      clearMouseAim();
+      keysRef.current.clear();
+      movementInputRef.current = { x: 0, y: 0 };
+    };
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', onKeyUp);
+    if (supportsPointerEvents) {
+      window.addEventListener('pointermove', onPointerMove);
+      window.addEventListener('pointerout', onPointerOut);
+    } else {
+      window.addEventListener('mousemove', onMouseMove);
+    }
+    window.addEventListener('mouseleave', clearMouseAim);
+    window.addEventListener('blur', onWindowBlur);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
       window.removeEventListener('keyup', onKeyUp);
+      if (supportsPointerEvents) {
+        window.removeEventListener('pointermove', onPointerMove);
+        window.removeEventListener('pointerout', onPointerOut);
+      } else {
+        window.removeEventListener('mousemove', onMouseMove);
+      }
+      window.removeEventListener('mouseleave', clearMouseAim);
+      window.removeEventListener('blur', onWindowBlur);
       keysRef.current.clear();
-      inputRef.current = { x: 0, y: 0 };
+      movementInputRef.current = { x: 0, y: 0 };
+      aimInputRef.current = undefined;
     };
   }, [handleAbility, handlePause, handleResume]);
-
-  const canRenderActiveRun = isFocused && isCurrentRunInitialized;
-  const activePhase = canRenderActiveRun ? phase : isFocused ? 'waveAnnounce' : null;
-  const activeHudData = canRenderActiveRun ? hudData : defaultHud;
-  const activeGameRef = canRenderActiveRun ? gameRef : emptyGameRef;
-  const isGameplay = activePhase === 'playing' || activePhase === 'waveAnnounce' || activePhase === 'collecting';
-  const state = canRenderActiveRun ? gameRef.current : null;
 
   return (
     <View style={s.container}>
@@ -514,16 +602,21 @@ export default function GameScreen() {
       {isGameplay && (
         <>
           <HUD data={activeHudData} onPause={handlePause} />
-          <VirtualJoystick onInput={handleInput} />
-          <AbilityButton
-            emoji={activeHudData?.abilityEmoji ?? '\u2B50'}
-            cooldown={activeHudData?.abilityCd ?? 0}
-            maxCooldown={activeHudData?.abilityMaxCd ?? 30}
-            onPress={handleAbility}
-          />
+          {inputEnabled && (
+            <>
+              <VirtualJoystick onInput={handleMovementInput} />
+              <AimControl onInput={handleAimInput} />
+              <AbilityButton
+                emoji={activeHudData?.abilityEmoji ?? '\u2B50'}
+                cooldown={activeHudData?.abilityCd ?? 0}
+                maxCooldown={activeHudData?.abilityMaxCd ?? 30}
+                onPress={handleAbility}
+              />
+            </>
+          )}
           {Platform.OS === 'web' && showControlsHint && (
             <View style={s.controlsHint} pointerEvents="none">
-              <Text style={s.controlsText}>WASD / Arrows · Space ability · P pause</Text>
+              <Text style={s.controlsText}>WASD / Arrows move · Mouse / right aim pad fires · Space ability · Keyboard-only auto-targets</Text>
             </View>
           )}
         </>

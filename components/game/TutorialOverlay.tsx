@@ -10,7 +10,7 @@ const SLIDES = [
   {
     title: 'Welcome to the Arena',
     emoji: '🦀',
-    text: 'Use WASD or the virtual joystick to move. Your character attacks automatically when enemies are in range. Survive until the wave timer runs out.',
+    text: 'Use WASD or Arrow keys (or the left joystick) to move. Use the mouse or right aim pad to direct fire, and Space for your ability. Keyboard-only players keep automatic targeting. Survive until the wave timer runs out.',
   },
   {
     title: 'Gather Materials',
