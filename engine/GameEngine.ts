@@ -2,7 +2,7 @@ import { Vec2, dist, norm, sub, clamp, rng, rngInt, angle2v, v2angle, len, lerp 
 import type {
   GameState, PlayerState, Enemy, Projectile, Pickup, DmgNum, ResourceNode, PetCompanion, PetKind, PetPerk,
   CharacterId, GamePhase, WeaponId, ItemId, Rarity, WeaponState, EliteModifier,
-  ShopSlot, LevelUpOption, RelicChoice, RunRelic, RelicId, HudData, WaveState, PendingHatch,
+  ShopSlot, LevelUpOption, RelicChoice, RunRelic, RelicId, HudData, WaveState, PendingHatch, GameInput,
 } from './types';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ENEMY_DEFS, ITEM_DEFS, WEAPON_IDS, ELITE_COLORS, ELITE_EMOJIS, MODIFIER_NAMES } from './data';
 import { playSound } from '../services/audio';
@@ -50,6 +50,7 @@ const CHARGER_MAX_RANGE = 265;
 const CHARGER_TELEGRAPH = 0.56;
 const CHARGER_DASH_TIME = 0.42;
 const CHARGER_COOLDOWN = 2.35;
+const INPUT_DIRECTION_EPSILON = 0.1;
 
 const RELIC_DEFS: readonly RelicChoice[] = Object.freeze([
   Object.freeze({
@@ -353,6 +354,7 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     player: {
       x: cx, y: cy,
       moveVx: 0, moveVy: 0,
+      facing: { x: 1, y: 0 },
       hp: cDef.hp + (startingBonuses?.extraHp ?? 0) * 5,
       maxHp: cDef.hp + (startingBonuses?.extraHp ?? 0) * 5,
       baseSpeed: cDef.speed,
@@ -404,11 +406,48 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
   return state;
 }
 
+type NormalizedGameInput = {
+  movement: Vec2;
+  movementDirection: Vec2 | null;
+  explicitAim: Vec2 | null;
+  legacy: boolean;
+};
+
+function normalizedDirection(input: Vec2 | undefined): Vec2 | null {
+  return input && len(input) > INPUT_DIRECTION_EPSILON ? norm(input) : null;
+}
+
+function normalizeGameInput(input: Vec2 | GameInput): NormalizedGameInput {
+  const legacy = !('movement' in input);
+  const movement = legacy ? input : input.movement;
+  return {
+    movement,
+    movementDirection: normalizedDirection(movement),
+    explicitAim: legacy ? null : normalizedDirection(input.aim),
+    legacy,
+  };
+}
+
+function updateFacing(player: PlayerState, input: NormalizedGameInput): void {
+  const direction = input.explicitAim ?? input.movementDirection;
+  if (direction) player.facing = direction;
+}
+
 // ═══ MAIN UPDATE ═══
-export function updateGame(state: GameState, dt: number, input: Vec2): void {
-  if (state.phase === 'waveAnnounce') { updateAnnounce(state, dt, input); return; }
-  if (state.phase === 'collecting') { updateCollecting(state, dt, input); return; }
+export function updateGame(state: GameState, dt: number, input: Vec2 | GameInput): void {
+  const normalizedInput = normalizeGameInput(input);
+  if (state.phase === 'waveAnnounce') {
+    updateFacing(state.player, normalizedInput);
+    updateAnnounce(state, dt, normalizedInput);
+    return;
+  }
+  if (state.phase === 'collecting') {
+    updateFacing(state.player, normalizedInput);
+    updateCollecting(state, dt, normalizedInput);
+    return;
+  }
   if (state.phase !== 'playing') return;
+  updateFacing(state.player, normalizedInput);
 
   // Hit stop / freeze frames
   if (state.hitStop > 0) {
@@ -429,13 +468,13 @@ export function updateGame(state: GameState, dt: number, input: Vec2): void {
   }
   if (state.critStopCooldown > 0) state.critStopCooldown = Math.max(0, state.critStopCooldown - dt);
 
-  updatePlayer(state, dt, input);
+  updatePlayer(state, dt, normalizedInput.movement);
   updateWaterBreath(state, dt);
   updateAbilityTimer(state, dt);
   updateEnemies(state, dt);
   updateResourceNodes(state, dt);
   updatePets(state, dt);
-  fireWeapons(state, dt);
+  fireWeapons(state, dt, normalizedInput.explicitAim);
   updateProjectiles(state, dt);
   checkProjectileHits(state);
   checkEnemyPlayerHits(state);
@@ -464,12 +503,12 @@ function updateResourceNodes(state: GameState, dt: number): void {
 }
 
 // ═══ ANNOUNCE ═══
-function updateAnnounce(state: GameState, dt: number, input: Vec2): void {
+function updateAnnounce(state: GameState, dt: number, input: NormalizedGameInput): void {
   state.wave.announceTimer -= dt;
   if (state.modifierAnnounceTimer > 0) state.modifierAnnounceTimer -= dt;
   // Let the player reposition during the banner so wave starts feel seamless
   // instead of freezing for the announce duration.
-  updatePlayer(state, dt, input);
+  updatePlayer(state, dt, input.movement);
   updateDmgNums(state, dt);
   updateEffects(state, dt);
   updateDeathParticles(state, dt);
@@ -497,8 +536,8 @@ function rollWaveModifier(state: GameState): void {
 }
 
 // ═══ COLLECTING ═══
-function updateCollecting(state: GameState, dt: number, input: Vec2): void {
-  updatePlayer(state, dt, input);
+function updateCollecting(state: GameState, dt: number, input: NormalizedGameInput): void {
+  updatePlayer(state, dt, input.movement);
   const p = state.player;
   for (const pk of state.pickups) {
     const d = norm(sub({ x: p.x, y: p.y }, { x: pk.x, y: pk.y }));
@@ -882,7 +921,7 @@ function updatePets(state: GameState, dt: number): void {
 }
 
 // ═══ WEAPONS ═══
-function fireWeapons(state: GameState, dt: number): void {
+function fireWeapons(state: GameState, dt: number, explicitAim: Vec2 | null): void {
   const p = state.player;
   for (let weaponIndex = 0; weaponIndex < p.weapons.length; weaponIndex++) {
     const ws = p.weapons[weaponIndex];
@@ -894,7 +933,7 @@ function fireWeapons(state: GameState, dt: number): void {
     if (wDef.kind === 'melee') {
       fireMelee(state, wDef, ws, cd);
     } else if (wDef.kind === 'ranged') {
-      fireRanged(state, wDef, ws, cd, weaponIndex);
+      fireRanged(state, wDef, ws, cd, weaponIndex, explicitAim);
     } else if (wDef.kind === 'special') {
       fireSpecial(state, wDef, ws, cd);
     }
@@ -963,14 +1002,17 @@ function fireMelee(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSta
   }
 }
 
-function fireRanged(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponState, cd: number, weaponIndex: number): void {
+function fireRanged(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponState, cd: number, weaponIndex: number, explicitAim: Vec2 | null): void {
   const p = state.player;
-  const nearest = findNearest(p, state.enemies, wDef.range);
-  const nearestNode = findNearestNode(p, state.resourceNodes, wDef.range);
-  const target = chooseCloserTarget(p, nearest, nearestNode);
-  if (!target) return;
+  let baseDir = explicitAim;
+  if (!baseDir) {
+    const nearest = findNearest(p, state.enemies, wDef.range);
+    const nearestNode = findNearestNode(p, state.resourceNodes, wDef.range);
+    const target = chooseCloserTarget(p, nearest, nearestNode);
+    if (!target) return;
+    baseDir = norm(sub(target, p));
+  }
   ws.cooldownTimer = cd;
-  const baseDir = norm(sub(target, p));
   const baseAngle = v2angle(baseDir);
   playSound(ws.evolved ? 'shootHeavy' : wDef.id === 'smg' ? 'shootFast' : 'shoot');
   addEffect(state, p.x + baseDir.x * 22, p.y + baseDir.y * 22, 'muzzle', '#FBBF24', baseAngle, 26);
@@ -2375,7 +2417,8 @@ export function startNextWave(state: GameState): void {
 }
 
 // ═══ ABILITY ═══
-export function activateAbility(state: GameState, input: Vec2): void {
+export function activateAbility(state: GameState, input: Vec2 | GameInput): void {
+  const normalizedInput = normalizeGameInput(input);
   const p = state.player;
   if (p.abilityCooldown > 0 || state.phase !== 'playing') return;
   playSound('ability');
@@ -2391,12 +2434,12 @@ export function activateAbility(state: GameState, input: Vec2): void {
       p.abilityCooldown = p.abilityMaxCooldown;
       p.invulnTimer = 0.3;
       const dashDist = 150;
-      let dir = { x: input.x, y: input.y };
-      if (len(dir) < 0.1) {
+      let dir = normalizedInput.legacy
+        ? normalizedInput.movementDirection
+        : normalizedInput.explicitAim ?? normalizedInput.movementDirection ?? normalizedDirection(p.facing);
+      if (!dir) {
         const nearest = findNearest(p, state.enemies, 500);
         dir = nearest ? norm(sub(nearest, p)) : { x: 1, y: 0 };
-      } else {
-        dir = norm(dir);
       }
       const point = resolveArenaObstacleCollision(
         clamp(p.x + dir.x * dashDist, p.radius, state.arena.width - p.radius),

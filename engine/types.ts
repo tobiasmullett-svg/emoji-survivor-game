@@ -22,6 +22,8 @@ export interface PlayerState {
   x: number; y: number;
   /** Smoothed movement velocity (px/s) — eases toward input direction. */
   moveVx: number; moveVy: number;
+  /** Last non-zero movement or aim direction, used by directed actions. */
+  facing: Vec2;
   hp: number; maxHp: number;
   baseSpeed: number; speedMult: number;
   damageMult: number; armor: number;
@@ -300,6 +302,12 @@ export interface GameState {
   obstacleBumpTimer: number;
   /** Min spacing between crit-triggered freeze frames, so rapid crit builds don't judder. */
   critStopCooldown: number;
+}
+
+/** Separate movement and optional manual aiming input for a game tick. */
+export interface GameInput {
+  movement: Vec2;
+  aim?: Vec2;
 }
 
 export interface CharacterDef {

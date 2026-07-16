@@ -12,9 +12,10 @@ import {
   startNextWave,
   extractHudData,
   resetIdCounter,
+  activateAbility,
 } from '../GameEngine';
 import { WEAPON_EVOLVE_COST, WEAPON_EVOLVE_KILLS, WEAPON_MAX_LEVEL, PICKUP_BASE_RANGE } from '../constants';
-import type { Enemy, PetCompanion, PetKind } from '../types';
+import type { Enemy, GamePhase, PetCompanion, PetKind } from '../types';
 
 jest.mock('../../services/audio', () => ({
   playSound: jest.fn(),
@@ -68,6 +69,7 @@ describe('initGameState', () => {
     const s = initGameState('crab', 800, 600);
     expect(s.wave.number).toBe(1);
     expect(s.phase).toBe('waveAnnounce');
+    expect(s.player.facing).toEqual({ x: 1, y: 0 });
   });
 
   it('applies starting bonuses', () => {
@@ -264,6 +266,21 @@ function makeTestPet(id: number, kind: PetKind, overrides: Partial<PetCompanion>
   };
 }
 
+function makeTestEnemy(id: number, x: number, y: number, overrides: Partial<Enemy> = {}): Enemy {
+  return {
+    id, type: 'chaser', x, y,
+    hp: 9999, maxHp: 9999, speed: 0, damage: 10,
+    radius: 16, emoji: '👾', fontSize: 28, isBoss: false,
+    flashTimer: 0, knockbackX: 0, knockbackY: 0,
+    attackCooldown: 0, alive: true, elite: 'none',
+    shieldHp: 0, maxShieldHp: 0,
+    telegraphTimer: 0, telegraphMax: 0, telegraphType: 'none',
+    chargeTimer: 0, chargeCooldown: 0, chargeVx: 0, chargeVy: 0,
+    fireTrailTimer: 0,
+    ...overrides,
+  };
+}
+
 describe('brood', () => {
   it('refuses egg purchase when the brood is full', () => {
     const state = initGameState('crab', 800, 600);
@@ -293,6 +310,222 @@ describe('movement smoothing', () => {
   });
 });
 
+describe('independent movement and aim input', () => {
+  function makeRangedState() {
+    const state = initGameState('crab', 800, 600);
+    state.phase = 'playing';
+    state.resourceNodes = [];
+    state.player.weapons = [{ id: 'pistol', cooldownTimer: 0, rarityMult: 1, level: 1, evolved: false, killCount: 0 }];
+    return state;
+  }
+
+  it('fires explicit aim opposite the nearest enemy, including into empty space', () => {
+    const state = makeRangedState();
+    const p = state.player;
+    state.enemies = [makeTestEnemy(101, p.x - 120, p.y)];
+
+    updateGame(state, 0, { movement: { x: 0, y: 0 }, aim: { x: 1, y: 0 } });
+
+    expect(state.projectiles).toHaveLength(1);
+    expect(state.projectiles[0].vx).toBeGreaterThan(0);
+    expect(state.projectiles[0].vy).toBeCloseTo(0);
+  });
+
+  it('fires explicit structured aim into genuinely empty space', () => {
+    const state = makeRangedState();
+
+    expect(state.enemies).toHaveLength(0);
+    expect(state.resourceNodes).toHaveLength(0);
+    updateGame(state, 0, { movement: { x: 0, y: 0 }, aim: { x: 1, y: 0 } });
+
+    expect(state.projectiles).toHaveLength(1);
+    expect(state.projectiles[0].vx).toBeGreaterThan(0);
+    expect(state.projectiles[0].vy).toBeCloseTo(0);
+  });
+
+  it.each([
+    ['absent aim', { movement: { x: 0, y: 0 } }],
+    ['zero aim', { movement: { x: 0, y: 0 }, aim: { x: 0, y: 0 } }],
+    ['near-zero aim', { movement: { x: 0, y: 0 }, aim: { x: 0.1, y: 0 } }],
+  ])('requires a target for structured %s with zero movement', (_label, input) => {
+    const state = makeRangedState();
+
+    updateGame(state, 0, input);
+
+    expect(state.enemies).toHaveLength(0);
+    expect(state.resourceNodes).toHaveLength(0);
+    expect(state.projectiles).toHaveLength(0);
+  });
+
+  it.each([
+    ['absent aim', { movement: { x: 0, y: 0 } }],
+    ['zero aim', { movement: { x: 0, y: 0 }, aim: { x: 0, y: 0 } }],
+    ['near-zero aim', { movement: { x: 0, y: 0 }, aim: { x: 0.1, y: 0 } }],
+  ])('keeps auto-targeting for structured %s with zero movement when a target exists', (_label, input) => {
+    const state = makeRangedState();
+    const p = state.player;
+    state.enemies = [makeTestEnemy(105, p.x - 120, p.y)];
+
+    updateGame(state, 0, input);
+
+    expect(state.projectiles).toHaveLength(1);
+    expect(state.projectiles[0].vx).toBeLessThan(0);
+    expect(state.projectiles[0].vy).toBeCloseTo(0);
+  });
+
+  it('keeps legacy zero Vec2 ranged auto-fire pointed at the nearest target', () => {
+    const state = makeRangedState();
+    const p = state.player;
+    state.enemies = [makeTestEnemy(102, p.x - 120, p.y)];
+
+    updateGame(state, 0, { x: 0, y: 0 });
+
+    expect(state.projectiles).toHaveLength(1);
+    expect(state.projectiles[0].vx).toBeLessThan(0);
+    expect(state.projectiles[0].vy).toBeCloseTo(0);
+  });
+
+  it('updates facing from aim, then movement, then keeps the prior direction', () => {
+    const state = initGameState('crab', 800, 600);
+    state.phase = 'playing';
+
+    updateGame(state, 0, { movement: { x: 1, y: 0 }, aim: { x: 0, y: -2 } });
+    expect(state.player.facing).toEqual({ x: 0, y: -1 });
+
+    updateGame(state, 0, { movement: { x: 0, y: 4 }, aim: { x: 0, y: 0 } });
+    expect(state.player.facing).toEqual({ x: 0, y: 1 });
+
+    updateGame(state, 0, { movement: { x: 0, y: 0 }, aim: { x: 0, y: 0 } });
+    expect(state.player.facing).toEqual({ x: 0, y: 1 });
+  });
+
+  it.each<GamePhase>(['waveAnnounce', 'collecting'])('updates facing from structured aim during %s', phase => {
+    const state = initGameState('crab', 800, 600);
+    state.phase = phase;
+
+    updateGame(state, 0, { movement: { x: -1, y: 0 }, aim: { x: 0, y: 2 } });
+
+    expect(state.player.facing).toEqual({ x: 0, y: 1 });
+  });
+
+  it('does not mutate facing outside active movement phases', () => {
+    const inactivePhases: GamePhase[] = ['paused', 'gameover', 'levelup', 'relic', 'shopping'];
+    for (const phase of inactivePhases) {
+      const state = initGameState('crab', 800, 600);
+      state.phase = phase;
+      state.player.facing = { x: -1, y: 0 };
+
+      updateGame(state, 0, { movement: { x: 0, y: 0 }, aim: { x: 0, y: 1 } });
+
+      expect(state.player.facing).toEqual({ x: -1, y: 0 });
+    }
+  });
+});
+
+describe('directed abilities', () => {
+  it.each([{ x: 0, y: 0 }, { x: 0.1, y: 0 }])('keeps fresh Octopus legacy input %o targeting the nearest enemy', input => {
+    const state = initGameState('octopus', 800, 600);
+    state.phase = 'playing';
+    const p = state.player;
+    const startX = p.x;
+    state.enemies = [makeTestEnemy(103, p.x - 300, p.y)];
+
+    activateAbility(state, input);
+
+    expect(p.x).toBeLessThan(startX);
+  });
+
+  it('uses the legacy no-target fallback to dash exactly right', () => {
+    const state = initGameState('octopus', 800, 600);
+    state.phase = 'playing';
+    const p = state.player;
+    const startX = p.x;
+    const startY = p.y;
+
+    expect(state.enemies).toHaveLength(0);
+    activateAbility(state, { x: 0, y: 0 });
+
+    expect(p.x).toBe(startX + 150);
+    expect(p.y).toBe(startY);
+  });
+
+  it('uses remembered facing before nearest enemies for structured zero movement', () => {
+    const state = initGameState('octopus', 800, 600);
+    state.phase = 'playing';
+    const p = state.player;
+    const startY = p.y;
+    p.facing = { x: 0, y: -1 };
+    state.enemies = [makeTestEnemy(104, p.x - 300, p.y)];
+
+    activateAbility(state, { movement: { x: 0, y: 0 } });
+
+    expect(p.x).toBeCloseTo(state.arena.width / 2);
+    expect(p.y).toBeLessThan(startY);
+  });
+
+  it('uses structured aim before conflicting movement for Octopus dash direction', () => {
+    const state = initGameState('octopus', 800, 600);
+    state.phase = 'playing';
+    const p = state.player;
+    const startX = p.x;
+
+    activateAbility(state, { movement: { x: -1, y: 0 }, aim: { x: 1, y: 0 } });
+
+    expect(p.x).toBeGreaterThan(startX);
+  });
+
+  it('uses nonzero structured movement before remembered facing for Octopus dash direction', () => {
+    const state = initGameState('octopus', 800, 600);
+    state.phase = 'playing';
+    const p = state.player;
+    const startX = p.x;
+    p.facing = { x: -1, y: 0 };
+
+    activateAbility(state, { movement: { x: 1, y: 0 } });
+
+    expect(p.x).toBeGreaterThan(startX);
+  });
+
+  it('uses remembered facing before a nearby enemy for structured zero movement', () => {
+    const state = initGameState('octopus', 800, 600);
+    state.phase = 'playing';
+    const p = state.player;
+    const startY = p.y;
+    p.facing = { x: 0, y: -1 };
+    state.enemies = [makeTestEnemy(106, p.x - 300, p.y)];
+
+    activateAbility(state, { movement: { x: 0, y: 0 } });
+
+    expect(p.y).toBeLessThan(startY);
+  });
+
+  it('uses a nearby enemy after a structured zero facing direction for Octopus dash direction', () => {
+    const state = initGameState('octopus', 800, 600);
+    state.phase = 'playing';
+    const p = state.player;
+    const startX = p.x;
+    p.facing = { x: 0, y: 0 };
+    state.enemies = [makeTestEnemy(107, p.x - 300, p.y)];
+
+    activateAbility(state, { movement: { x: 0, y: 0 } });
+
+    expect(p.x).toBeLessThan(startX);
+  });
+
+  it('uses right when structured input, facing, and nearby enemies provide no Octopus dash direction', () => {
+    const state = initGameState('octopus', 800, 600);
+    state.phase = 'playing';
+    const p = state.player;
+    const startX = p.x;
+    p.facing = { x: 0, y: 0 };
+    state.enemies = [];
+
+    activateAbility(state, { movement: { x: 0, y: 0 } });
+
+    expect(p.x).toBeGreaterThan(startX);
+  });
+});
+
 describe('pet perks', () => {
   it('mend_shield barrier absorbs one enemy contact hit', () => {
     const state = initGameState('crab', 800, 600);
@@ -303,17 +536,7 @@ describe('pet perks', () => {
       x: p.x, y: p.y, level: 5,
       perks: [{ id: 'mend_shield', name: 'Barrier', emoji: '🛡️', desc: 'Absorbs one hit every 8s' }],
     }));
-    const enemy: Enemy = {
-      id: 9002, type: 'chaser', x: p.x, y: p.y,
-      hp: 9999, maxHp: 9999, speed: 0, damage: 25,
-      radius: 16, emoji: '👾', fontSize: 28, isBoss: false,
-      flashTimer: 0, knockbackX: 0, knockbackY: 0,
-      attackCooldown: 0, alive: true, elite: 'none',
-      shieldHp: 0, maxShieldHp: 0,
-      telegraphTimer: 0, telegraphMax: 0, telegraphType: 'none',
-      chargeTimer: 0, chargeCooldown: 0, chargeVx: 0, chargeVy: 0,
-      fireTrailTimer: 0,
-    };
+    const enemy = makeTestEnemy(9002, p.x, p.y, { damage: 25 });
     state.enemies.push(enemy);
     const hpBefore = p.hp;
 
