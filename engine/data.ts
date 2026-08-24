@@ -25,25 +25,25 @@ export const CHARACTERS: CharacterDef[] = [
 ];
 
 export const WEAPONS: Record<string, WeaponDef> = {
-  stick: { id: 'stick', name: 'Stick', emoji: '🪵', kind: 'melee', damage: 8, range: 55, cooldown: 0.8, projCount: 1, spread: 0, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Basic melee weapon' },
-  sword: { id: 'sword', name: 'Sword', emoji: '⚔️', kind: 'melee', damage: 15, range: 65, cooldown: 1.2, projCount: 1, spread: 0, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Heavy melee slash' },
-  claw: { id: 'claw', name: 'Claw', emoji: '🦞', kind: 'melee', damage: 12, range: 45, cooldown: 0.5, projCount: 1, spread: 0, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Fast melee swipe' },
-  pistol: { id: 'pistol', name: 'Pistol', emoji: '🔫', kind: 'ranged', damage: 8, range: 300, cooldown: 0.68, projCount: 1, spread: 0, piercing: false, projEmoji: '•', projSpeed: 430, chainTargets: 0, desc: 'Reliable ranged weapon' },
-  smg: { id: 'smg', name: 'SMG', emoji: '💨', kind: 'ranged', damage: 5, range: 250, cooldown: 0.15, projCount: 1, spread: 0.15, piercing: false, projEmoji: '·', projSpeed: 450, chainTargets: 0, desc: 'Rapid fire, slight spread' },
-  shotgun: { id: 'shotgun', name: 'Shotgun', emoji: '💥', kind: 'ranged', damage: 6, range: 150, cooldown: 1.0, projCount: 5, spread: 0.12, piercing: false, projEmoji: '•', projSpeed: 350, chainTargets: 0, desc: '5 pellets in a spread' },
-  crossbow: { id: 'crossbow', name: 'Crossbow', emoji: '🏹', kind: 'ranged', damage: 20, range: 400, cooldown: 1.5, projCount: 1, spread: 0, piercing: true, projEmoji: '→', projSpeed: 500, chainTargets: 0, desc: 'High damage, piercing' },
-  lightning: { id: 'lightning', name: 'Lightning', emoji: '⚡', kind: 'special', damage: 12, range: 200, cooldown: 0.8, projCount: 1, spread: 0, piercing: false, projEmoji: '⚡', projSpeed: 0, chainTargets: 3, desc: 'Chains to 3 enemies' },
+  stick: { id: 'stick', name: 'Stick', emoji: '🪵', kind: 'melee', element: 'lightning', damage: 8, range: 55, cooldown: 0.8, projCount: 1, spread: 0, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Basic melee weapon' },
+  sword: { id: 'sword', name: 'Sword', emoji: '⚔️', kind: 'melee', element: 'ice', damage: 15, range: 65, cooldown: 1.2, projCount: 1, spread: 0, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Heavy melee slash' },
+  claw: { id: 'claw', name: 'Claw', emoji: '🦞', kind: 'melee', element: 'ice', damage: 12, range: 45, cooldown: 0.5, projCount: 1, spread: 0, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Fast melee swipe' },
+  pistol: { id: 'pistol', name: 'Pistol', emoji: '🔫', kind: 'ranged', element: 'fire', damage: 8, range: 300, cooldown: 0.68, projCount: 1, spread: 0, piercing: false, projEmoji: '•', projSpeed: 430, chainTargets: 0, desc: 'Reliable ranged weapon' },
+  smg: { id: 'smg', name: 'SMG', emoji: '💨', kind: 'ranged', element: 'lightning', damage: 5, range: 250, cooldown: 0.15, projCount: 1, spread: 0.15, piercing: false, projEmoji: '·', projSpeed: 450, chainTargets: 0, desc: 'Rapid fire, slight spread' },
+  shotgun: { id: 'shotgun', name: 'Shotgun', emoji: '💥', kind: 'ranged', element: 'fire', damage: 6, range: 150, cooldown: 1.0, projCount: 5, spread: 0.12, piercing: false, projEmoji: '•', projSpeed: 350, chainTargets: 0, desc: '5 pellets in a spread' },
+  crossbow: { id: 'crossbow', name: 'Crossbow', emoji: '🏹', kind: 'ranged', element: 'fire', damage: 20, range: 400, cooldown: 1.5, projCount: 1, spread: 0, piercing: true, projEmoji: '→', projSpeed: 500, chainTargets: 0, desc: 'High damage, piercing' },
+  lightning: { id: 'lightning', name: 'Lightning', emoji: '⚡', kind: 'special', element: 'lightning', damage: 12, range: 200, cooldown: 0.8, projCount: 1, spread: 0, piercing: false, projEmoji: '⚡', projSpeed: 0, chainTargets: 3, desc: 'Chains to 3 enemies' },
 };
 
 export const EVOLVED_WEAPONS: Record<string, WeaponDef> = {
-  stick: { id: 'stick', name: 'Thunder Staff', emoji: '🔱', kind: 'melee', damage: 18, range: 70, cooldown: 0.7, projCount: 1, spread: 0, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Crackling with energy' },
-  sword: { id: 'sword', name: 'Excalibur', emoji: '🗡️', kind: 'melee', damage: 32, range: 75, cooldown: 1.1, projCount: 1, spread: 0, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Legendary blade' },
-  claw: { id: 'claw', name: 'Titan Pincer', emoji: '🦀', kind: 'melee', damage: 22, range: 55, cooldown: 0.4, projCount: 2, spread: 0.2, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Dual strike fury' },
-  pistol: { id: 'pistol', name: 'Hand Cannon', emoji: '🔥', kind: 'ranged', damage: 18, range: 350, cooldown: 0.6, projCount: 1, spread: 0, piercing: true, projEmoji: '🔥', projSpeed: 480, chainTargets: 0, desc: 'Piercing fire rounds' },
-  smg: { id: 'smg', name: 'Minigun', emoji: '🌀', kind: 'ranged', damage: 9, range: 280, cooldown: 0.11, projCount: 1, spread: 0.18, piercing: false, projEmoji: '·', projSpeed: 480, chainTargets: 0, desc: 'Bullet hell' },
-  shotgun: { id: 'shotgun', name: 'Dragon Breath', emoji: '🐉', kind: 'ranged', damage: 10, range: 180, cooldown: 0.9, projCount: 7, spread: 0.14, piercing: false, projEmoji: '🔥', projSpeed: 380, chainTargets: 0, desc: '7 flaming pellets' },
-  crossbow: { id: 'crossbow', name: 'Ballista', emoji: '🎯', kind: 'ranged', damage: 40, range: 500, cooldown: 1.3, projCount: 1, spread: 0, piercing: true, projEmoji: '⇒', projSpeed: 600, chainTargets: 0, desc: 'Massive piercing bolt' },
-  lightning: { id: 'lightning', name: 'Storm Caller', emoji: '🌩️', kind: 'special', damage: 18, range: 250, cooldown: 0.7, projCount: 1, spread: 0, piercing: false, projEmoji: '🌩️', projSpeed: 0, chainTargets: 5, desc: 'Chains to 5 enemies' },
+  stick: { id: 'stick', name: 'Thunder Staff', emoji: '🔱', kind: 'melee', element: 'lightning', damage: 18, range: 70, cooldown: 0.7, projCount: 1, spread: 0, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Crackling with energy' },
+  sword: { id: 'sword', name: 'Excalibur', emoji: '🗡️', kind: 'melee', element: 'ice', damage: 32, range: 75, cooldown: 1.1, projCount: 1, spread: 0, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Legendary blade' },
+  claw: { id: 'claw', name: 'Titan Pincer', emoji: '🦀', kind: 'melee', element: 'ice', damage: 22, range: 55, cooldown: 0.4, projCount: 2, spread: 0.2, piercing: false, projEmoji: '', projSpeed: 0, chainTargets: 0, desc: 'Dual strike fury' },
+  pistol: { id: 'pistol', name: 'Hand Cannon', emoji: '🔥', kind: 'ranged', element: 'fire', damage: 18, range: 350, cooldown: 0.6, projCount: 1, spread: 0, piercing: true, projEmoji: '🔥', projSpeed: 480, chainTargets: 0, desc: 'Piercing fire rounds' },
+  smg: { id: 'smg', name: 'Minigun', emoji: '🌀', kind: 'ranged', element: 'lightning', damage: 9, range: 280, cooldown: 0.11, projCount: 1, spread: 0.18, piercing: false, projEmoji: '·', projSpeed: 480, chainTargets: 0, desc: 'Bullet hell' },
+  shotgun: { id: 'shotgun', name: 'Dragon Breath', emoji: '🐉', kind: 'ranged', element: 'fire', damage: 10, range: 180, cooldown: 0.9, projCount: 7, spread: 0.14, piercing: false, projEmoji: '🔥', projSpeed: 380, chainTargets: 0, desc: '7 flaming pellets' },
+  crossbow: { id: 'crossbow', name: 'Ballista', emoji: '🎯', kind: 'ranged', element: 'fire', damage: 40, range: 500, cooldown: 1.3, projCount: 1, spread: 0, piercing: true, projEmoji: '⇒', projSpeed: 600, chainTargets: 0, desc: 'Massive piercing bolt' },
+  lightning: { id: 'lightning', name: 'Storm Caller', emoji: '🌩️', kind: 'special', element: 'lightning', damage: 18, range: 250, cooldown: 0.7, projCount: 1, spread: 0, piercing: false, projEmoji: '🌩️', projSpeed: 0, chainTargets: 5, desc: 'Chains to 5 enemies' },
 };
 
 export const ELITE_COLORS: Record<string, string> = {

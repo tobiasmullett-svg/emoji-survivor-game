@@ -3,9 +3,12 @@ import type {
   GameState, PlayerState, Enemy, Projectile, Pickup, DmgNum, ResourceNode, PetCompanion, PetKind, PetPerk,
   CharacterId, GamePhase, WeaponId, ItemId, Rarity, WeaponState, EliteModifier,
   ShopSlot, LevelUpOption, RelicChoice, RunRelic, RelicId, HudData, WaveState, PendingHatch, GameInput,
-  StatusEffectType,
+  StatusEffectType, Element, ElementTag, PetUpgradeId, ElementalUpgradeId, ComboTier,
 } from './types';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ENEMY_DEFS, ITEM_DEFS, WEAPON_IDS, ELITE_COLORS, ELITE_EMOJIS, MODIFIER_NAMES } from './data';
+import {
+  ELEMENTAL_UPGRADES, ELEMENTAL_UPGRADE_LIST, ELEMENTAL_RELIC_ELEMENTS, ELEMENT_META, elementalThresholdMult,
+} from './elements';
 import type { SoundName } from '../services/audio';
 import type { HapticKind } from '../services/haptics';
 import type { GameEvent } from './types';
@@ -43,6 +46,8 @@ const PET_DEFS: Record<PetKind, { emoji: string; name: string; damage: number; c
   snapper: { emoji: '🦐', name: 'Snapper', damage: 5, cooldown: 0.85, range: 130, projEmoji: '›', color: '#FB7185', attackName: 'Bite Dart', trait: 'Hunter', traitDesc: 'Fast single-target shots. Trains into rapid boss damage.' },
   spark: { emoji: '🪼', name: 'Spark', damage: 4, cooldown: 1.2, range: 180, projEmoji: '✦', color: '#A78BFA', attackName: 'Static Pierce', trait: 'Chain', traitDesc: 'Piercing bolts with a zap burst on impact.' },
   mender: { emoji: '🐚', name: 'Mender', damage: 3, cooldown: 1.5, range: 145, projEmoji: '✚', color: '#2DD4BF', attackName: 'Tide Mend', trait: 'Healer', traitDesc: 'Heals you when hurt; otherwise fires soft support shots.' },
+  // Nature pet (spec §1.5): slow, tanky, heavy shots + a damage-reduction aura.
+  turtle: { emoji: '🐢', name: 'Nature Turtle', damage: 9, cooldown: 1.8, range: 150, projEmoji: '🌿', color: '#22C55E', attackName: 'Verdant Shot', trait: 'Guardian', traitDesc: 'Slow heavy shots. Each turtle reduces damage you take by 10%.' },
 };
 const PET_MAX_LEVEL = 9;
 const PET_BARRIER_COOLDOWN = 8;
@@ -120,6 +125,34 @@ const RELIC_DEFS: readonly RelicChoice[] = Object.freeze([
     drawback: 'Enemies move +6% faster.',
     rarity: 'legendary',
   }),
+  // Elemental relics (spec §1.4) — tagged with their element for the threshold economy.
+  Object.freeze({
+    id: 'phoenixEmber',
+    emoji: '🔥',
+    name: 'Phoenix Ember',
+    desc: 'Every kill ignites nearby enemies.',
+    drawback: '-15 max HP.',
+    rarity: 'rare',
+    element: 'fire',
+  }),
+  Object.freeze({
+    id: 'glacialCore',
+    emoji: '❄️',
+    name: 'Glacial Core',
+    desc: 'Dashes freeze enemies you pass through.',
+    drawback: '+20% ability cooldown.',
+    rarity: 'rare',
+    element: 'ice',
+  }),
+  Object.freeze({
+    id: 'stormSigil',
+    emoji: '⚡',
+    name: 'Storm Sigil',
+    desc: 'Your ability chains to 2 extra targets.',
+    drawback: '+25% ability cooldown.',
+    rarity: 'rare',
+    element: 'lightning',
+  }),
 ]);
 
 /** Queue a sound for the UI layer to play after the current tick. */
@@ -158,6 +191,11 @@ const PET_PERK_DEFS: Record<PetKind, { level: number; perk: PetPerk }[]> = {
     { level: 3, perk: { id: 'mend_regen', name: 'Regen Aura', emoji: '💚', desc: 'Passive heal-over-time' } },
     { level: 5, perk: { id: 'mend_shield', name: 'Barrier', emoji: '🛡️', desc: 'Absorbs one hit every 8s' } },
     { level: 7, perk: { id: 'mend_revive', name: 'Second Wind', emoji: '🌊', desc: 'Emergency burst heal at low HP' } },
+  ],
+  turtle: [
+    { level: 3, perk: { id: 'turtle_armor', name: 'Aura Shell', emoji: '🛡️', desc: 'Damage reduction aura +5%' } },
+    { level: 5, perk: { id: 'turtle_heavy', name: 'Heavy Shell', emoji: '🪨', desc: '+50% damage and bigger shots' } },
+    { level: 7, perk: { id: 'turtle_venom', name: 'Venom Spores', emoji: '☣️', desc: 'Shots poison enemies' } },
   ],
 };
 
@@ -217,6 +255,99 @@ function isBossWave(waveNumber: number): boolean {
   return BOSS_WAVES.includes(waveNumber);
 }
 
+// ═══ PET AXIS (spec §1.5) ═══
+
+function hasPetUpgrade(state: GameState, id: PetUpgradeId): boolean {
+  return state.petUpgrades.includes(id);
+}
+
+/** Whether this run owns a behavioral elemental upgrade (spec §1.3). */
+export function hasElementalUpgrade(state: GameState, id: ElementalUpgradeId): boolean {
+  return state.elementUpgrades.includes(id);
+}
+
+/**
+ * Element-tagged sources owned for one spine element (spec §1.2): weapons of
+ * that element (evolved forms keep their element), owned elemental upgrades,
+ * and the 3 elemental relics. Feeds the 2/4 tag thresholds.
+ */
+export function getElementTagCount(state: GameState, element: Exclude<Element, 'none'>): number {
+  let tags = 0;
+  for (const w of state.player.weapons) {
+    const def = (w.evolved ? EVOLVED_WEAPONS[w.id] : WEAPONS[w.id]);
+    if (def && def.element === element) tags++;
+  }
+  for (const id of state.elementUpgrades) {
+    if (ELEMENTAL_UPGRADES[id]?.element === element) tags++;
+  }
+  for (const relic of state.relics) {
+    if (ELEMENTAL_RELIC_ELEMENTS[relic.id] === element) tags++;
+  }
+  return tags;
+}
+
+/**
+ * Damage multiplier for hits of the given element: +10% at 2 owned tags,
+ * +25% at 4 owned tags (spec §1.2). Applied in `dealDamage` per weapon element.
+ */
+export function getElementDamageMult(state: GameState, element: Exclude<Element, 'none'>): number {
+  return elementalThresholdMult(getElementTagCount(state, element));
+}
+
+/**
+ * Deep Freeze (spec §1.3): freeze lasts 60% longer. Used by every player-side
+ * freeze application so the upgrade is uniformly mechanical.
+ */
+export function getFreezeDuration(state: GameState, base: number): number {
+  return hasElementalUpgrade(state, 'deepFreeze') ? base * 1.6 : base;
+}
+
+/** Weapon-def lookup honoring evolved forms (helper for element pipeline). */
+function weaponDefFor(ws: WeaponState): (typeof WEAPONS)[string] | undefined {
+  return ws.evolved ? EVOLVED_WEAPONS[ws.id] ?? WEAPONS[ws.id] : WEAPONS[ws.id];
+}
+
+/** Flame Reach (spec §1.3): +30% range on fire weapons. */
+function weaponReachMult(state: GameState, wDef: (typeof WEAPONS)[string]): number {
+  return wDef.element === 'fire' && hasElementalUpgrade(state, 'flameReach') ? 1.3 : 1;
+}
+
+/**
+ * Nature affinity tags owned (spec §1.5): pet-support level-up upgrades (all
+ * tagged 'nature') plus Nature Turtles hatched. Feeds the 2/4 tag threshold.
+ */
+export function getNatureTagCount(state: GameState): number {
+  let tags = state.petUpgrades.length;
+  for (const pet of state.pets) if (pet.kind === 'turtle') tags++;
+  return tags;
+}
+
+/** Nature affinity damage bonus for ALL pets: +15% at 2 tags, +35% at 4 tags. */
+export function getPetNatureDamageMult(state: GameState): number {
+  const tags = getNatureTagCount(state);
+  if (tags >= 4) return 1.35;
+  if (tags >= 2) return 1.15;
+  return 1;
+}
+
+/** Nature affinity bonus % (for HUD/UI display). */
+export function getPetNatureBonusPct(state: GameState): number {
+  return Math.round((getPetNatureDamageMult(state) - 1) * 100);
+}
+
+/**
+ * Damage reduction aura from Nature Turtles (spec §1.5): each turtle cuts
+ * incoming player damage by 10%, +5% with the Aura Shell perk, capped at 35%.
+ */
+export function getPetDamageReduction(state: GameState): number {
+  let reduction = 0;
+  for (const pet of state.pets) {
+    if (pet.kind !== 'turtle') continue;
+    reduction += 0.1 + (hasPerk(pet, 'turtle_armor') ? 0.05 : 0);
+  }
+  return Math.min(0.35, reduction);
+}
+
 function getPowerScore(state: GameState): number {
   const p = state.player;
   const evolvedWeapons = p.weapons.filter(w => w.evolved).length;
@@ -272,7 +403,22 @@ export function getPickupRange(state: GameState): number {
   return range * (1 + state.player.luck * 0.01) * getComboPickupRangeBonus(state);
 }
 
-function getComboTier(state: GameState): 'none' | 'bronze' | 'silver' | 'gold' | 'platinum' {
+// Combo tier ladder (spec §1.6): kill counts at which a combo tier unlocks.
+const COMBO_TIER_ORDER: readonly ComboTier[] = ['none', 'bronze', 'silver', 'gold', 'platinum'];
+const COMBO_TIER_MIN: Record<Exclude<ComboTier, 'none'>, number> = {
+  bronze: 8, silver: 16, gold: 32, platinum: 64,
+};
+const COMBO_TIER_NAMES: Record<Exclude<ComboTier, 'none'>, string> = {
+  bronze: 'BRONZE', silver: 'SILVER', gold: 'GOLD', platinum: 'PLATINUM',
+};
+const COMBO_TIER_COLORS: Record<Exclude<ComboTier, 'none'>, string> = {
+  bronze: '#CD7F32', silver: '#C0C0C0', gold: '#F59E0B', platinum: '#8B5CF6',
+};
+
+// Exported for the UI layer's screen-edge flash at tier-up (spec §1.6).
+export { COMBO_TIER_NAMES, COMBO_TIER_COLORS };
+
+function getComboTier(state: GameState): ComboTier {
   const c = state.combo.count;
   if (c >= 64) return 'platinum';
   if (c >= 32) return 'gold';
@@ -388,11 +534,14 @@ export function initGameState(charId: CharacterId, sw: number, sh: number, start
     },
     camera: { x: cx, y: cy },
     materials: 0,
-    combo: { count: 0, timer: 0, best: 0 },
+    combo: { count: 0, timer: 0, best: 0, tierRewarded: 0 },
     shake: { x: 0, y: 0, timer: 0, intensity: 0 },
     phase: 'waveAnnounce', prevPhase: 'waveAnnounce',
     stats: { enemiesKilled: 0, damageDealt: 0, damageTaken: 0, materialsCollected: 0, elitesKilled: 0, weaponsEvolved: 0, wasHit: false, startTime: Date.now(), bestCombo: 0, modifiersSeen: [] },
     shopSlots: [], levelUpOptions: [], _levelUpApply: [],
+    elementUpgrades: [],
+    lightningRodMarks: [], emberTrailTimer: 0, stormFieldTimer: 0,
+    petUpgrades: [],
     relics: [], relicChoices: [],
     rerollCost: REROLL_BASE,
     healCost: HEAL_BASE_COST,
@@ -682,7 +831,14 @@ function updateStatusEffects(state: GameState, e: Enemy, dt: number): void {
       if (effect.lastTick === undefined || effect.maxTime - effect.timer > effect.lastTick + tickRate) {
         effect.lastTick = (effect.lastTick || 0) + tickRate;
         if (effect.damagePerTick) {
-          dealDamage(state, e, effect.damagePerTick * effect.stacks, false);
+          let tickDmg = effect.damagePerTick * effect.stacks;
+          // Ignition (spec §1.1): a frozen/chilled enemy that takes fire damage
+          // burns at 2× burn rate. The freeze effect is still present this tick
+          // (it is filtered out only after the loop), so a simple lookup works.
+          if (effect.type === 'burn' && e.statusEffects.some(s => s.type === 'freeze')) {
+            tickDmg *= 2;
+          }
+          dealDamage(state, e, tickDmg, false);
           if (effect.type === 'burn') addEffect(state, e.x, e.y + 10, 'smoke', '#EF4444', 0, e.radius);
           if (effect.type === 'poison') addEffect(state, e.x, e.y + 10, 'smoke', '#10B981', 0, e.radius);
         }
@@ -934,19 +1090,25 @@ function updatePets(state: GameState, dt: number): void {
       return;
     }
     const { cooldown: attackCooldown, range: attackRange } = getPetAttackStats(pet);
+    // Pet Attack Speed+ upgrade (spec §1.5): -20% attack cooldown for all pets.
+    const attackCd = attackCooldown * (hasPetUpgrade(state, 'petAttackSpeed') ? 0.8 : 1);
     const nearest = findNearest(pet, state.enemies, attackRange);
     if (!nearest || state.projectiles.length >= MAX_PROJECTILES) return;
     const dir = norm(sub(nearest, pet));
-    pet.cooldownTimer = attackCooldown;
+    pet.cooldownTimer = attackCd;
     pet.attackFlash = 1;
     pet.action = 'attack';
     pet.aimAngle = v2angle(dir);
     addEffect(state, pet.x, pet.y, pet.kind === 'spark' ? 'beam' : 'muzzle', def.color, pet.aimAngle, pet.kind === 'spark' ? Math.min(attackRange, dist(pet, nearest)) : 18);
     if (pet.kind === 'spark') addEffect(state, nearest.x, nearest.y, 'zap', def.color, 0, 24 + pet.level * 2);
     if (pet.kind === 'snapper' && pet.level >= 4) addEffect(state, pet.x, pet.y, 'slash', def.color, pet.aimAngle, 24 + pet.level * 2);
-    let baseDmg = pet.damage * getPlayerDamageMult(state) * (1 + (pet.level - 1) * 0.32) * synergyMult * getPetDamageRelicMult(state, nearest);
+    let baseDmg = pet.damage * getPlayerDamageMult(state) * (1 + (pet.level - 1) * 0.32) * synergyMult * getPetNatureDamageMult(state) * getPetDamageRelicMult(state, nearest);
+    // Pet Damage+ upgrade (spec §1.5): +25% pet damage for all pets.
+    if (hasPetUpgrade(state, 'petDamage')) baseDmg *= 1.25;
     if (hasPerk(pet, 'snap_focus') && nearest.isBoss) baseDmg *= 1.4;
-    const projSpeed = pet.kind === 'snapper' ? 420 : 360;
+    if (hasPerk(pet, 'turtle_heavy')) baseDmg *= 1.5;
+    const projSpeed = pet.kind === 'snapper' ? 420 : pet.kind === 'turtle' ? 300 : 360;
+    const projLife = attackRange / projSpeed;
     const shotCount = hasPerk(pet, 'snap_double') ? 2 : 1;
     for (let si = 0; si < shotCount; si++) {
       const spread = shotCount > 1 ? (si - 0.5) * 0.15 : 0;
@@ -957,8 +1119,8 @@ function updatePets(state: GameState, dt: number): void {
         id: nid(), x: pet.x, y: pet.y,
         vx: d.x * projSpeed, vy: d.y * projSpeed,
         damage: baseDmg,
-        emoji: def.projEmoji, radius: 5 * levelScale, piercing: pet.kind === 'spark', hitIds: [],
-        life: attackRange / 360, maxLife: attackRange / 360, isEnemy: false,
+        emoji: def.projEmoji, radius: (pet.kind === 'turtle' ? 7 : 5) * levelScale, piercing: pet.kind === 'spark', hitIds: [],
+        life: projLife, maxLife: projLife, isEnemy: false,
         sourcePetId: pet.id,
       });
     }
@@ -1022,17 +1184,19 @@ function findNearestNode(pos: Vec2, nodes: ResourceNode[], range: number): Resou
 
 function fireMelee(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponState, cd: number): void {
   const p = state.player;
-  const nearest = findNearest(p, state.enemies, wDef.range + 10);
-  const nearestNode = findNearestNode(p, state.resourceNodes, wDef.range + 10);
+  const reach = weaponReachMult(state, wDef);
+  const range = wDef.range * reach;
+  const nearest = findNearest(p, state.enemies, range + 10);
+  const nearestNode = findNearestNode(p, state.resourceNodes, range + 10);
   if (!nearest && !nearestNode) return;
   ws.cooldownTimer = cd;
   playSound(state, ws.evolved ? 'shootHeavy' : 'melee');
-  addEffect(state, p.x, p.y, 'slash', '#FBBF24', v2angle(sub(nearest ?? nearestNode ?? p, p)), wDef.range);
+  addEffect(state, p.x, p.y, 'slash', '#FBBF24', v2angle(sub(nearest ?? nearestNode ?? p, p)), range);
   // Hit all enemies in range
   for (const e of state.enemies) {
     if (!e.alive) continue;
     const d = dist(p, e);
-    if (d <= wDef.range + e.radius) {
+    if (d <= range + e.radius) {
       const strikeMult = ws.evolved ? Math.max(1, wDef.projCount) : 1;
       const dmg = wDef.damage * getPlayerDamageMult(state) * weaponPowerMult(ws) * strikeMult * getWeaponDamageRelicMult(state, e);
       const isCrit = rng(0, 100) < p.critChance;
@@ -1049,10 +1213,12 @@ function fireMelee(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSta
 
 function fireRanged(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponState, cd: number, weaponIndex: number, explicitAim: Vec2 | null): void {
   const p = state.player;
+  const reach = weaponReachMult(state, wDef);
+  const range = wDef.range * reach;
   let baseDir = explicitAim;
   if (!baseDir) {
-    const nearest = findNearest(p, state.enemies, wDef.range);
-    const nearestNode = findNearestNode(p, state.resourceNodes, wDef.range);
+    const nearest = findNearest(p, state.enemies, range);
+    const nearestNode = findNearestNode(p, state.resourceNodes, range);
     const target = chooseCloserTarget(p, nearest, nearestNode);
     if (!target) return;
     baseDir = norm(sub(target, p));
@@ -1071,7 +1237,7 @@ function fireRanged(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponSt
       vx: dir.x * wDef.projSpeed, vy: dir.y * wDef.projSpeed,
       damage: wDef.damage * getPlayerDamageMult(state) * weaponPowerMult(ws),
       emoji: wDef.projEmoji, radius: 5, piercing: wDef.piercing,
-      hitIds: [], life: wDef.range / wDef.projSpeed, maxLife: wDef.range / wDef.projSpeed,
+      hitIds: [], life: range / wDef.projSpeed, maxLife: range / wDef.projSpeed,
       isEnemy: false, sourceWeaponIndex: weaponIndex,
     });
   }
@@ -1085,14 +1251,17 @@ function chooseCloserTarget(pos: Vec2, enemy: Enemy | null, node: ResourceNode |
 
 function fireSpecial(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponState, cd: number): void {
   const p = state.player;
-  const nearest = findNearest(p, state.enemies, wDef.range);
+  const reach = weaponReachMult(state, wDef);
+  const range = wDef.range * reach;
+  const nearest = findNearest(p, state.enemies, range);
   if (!nearest) return;
   ws.cooldownTimer = cd;
   playSound(state, 'shootHeavy');
-  // Lightning chain
+  // Lightning chain — Chain +1 (spec §1.3) extends the chain by one target.
+  const chainTargets = wDef.chainTargets + (hasElementalUpgrade(state, 'chainPlus') ? 1 : 0);
   const targets: Enemy[] = [nearest];
   let cur = nearest;
-  for (let i = 1; i < wDef.chainTargets; i++) {
+  for (let i = 1; i < chainTargets; i++) {
     let closestE: Enemy | null = null;
     let closestD = 150;
     for (const e of state.enemies) {
@@ -1112,7 +1281,28 @@ function fireSpecial(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponS
 }
 
 function dealDamage(state: GameState, enemy: Enemy, dmg: number, isCrit: boolean, sourceWeapon?: WeaponState): void {
-  const actual = Math.max(1, Math.round(dmg));
+  let damage = dmg;
+  const wDef = sourceWeapon ? weaponDefFor(sourceWeapon) : undefined;
+
+  // Elemental threshold (spec §1.2): damage from a weapon of an element with
+  // 2/4 owned tags is boosted (+10% / +25%). Applied per-hit on the weapon's
+  // element so a build's identity actually shows up in its damage.
+  if (wDef && wDef.element !== 'none') {
+    const elMult = getElementDamageMult(state, wDef.element);
+    if (elMult !== 1) damage *= elMult;
+  }
+  // Shatter (spec §1.3): frozen enemies take +50% from melee.
+  if (wDef?.kind === 'melee' && hasElementalUpgrade(state, 'shatter') && enemy.statusEffects?.some(s => s.type === 'freeze')) {
+    damage *= 1.5;
+  }
+  // Lightning Rod (spec §1.3): a marked enemy takes a guaranteed crit once.
+  const rodIdx = state.lightningRodMarks.indexOf(enemy.id);
+  if (rodIdx >= 0) {
+    state.lightningRodMarks.splice(rodIdx, 1);
+    isCrit = true;
+    damage *= 2;
+  }
+  const actual = Math.max(1, Math.round(damage));
   
   if (sourceWeapon) {
     if (sourceWeapon.id === 'pistol' || sourceWeapon.id === 'shotgun') {
@@ -1126,6 +1316,32 @@ function dealDamage(state: GameState, enemy: Enemy, dmg: number, isCrit: boolean
     }
     if (sourceWeapon.id === 'claw') {
       if (rng(0, 100) < 25) applyStatusEffect(enemy, 'bleed', 5);
+    }
+    // Elemental upgrades (spec §1.3): extra status chances by weapon element.
+    const el = wDef?.element;
+    if (el === 'fire' && hasElementalUpgrade(state, 'igniteChancePlus') && rng(0, 100) < 45) {
+      applyStatusEffect(enemy, 'burn', 3, 2 + (sourceWeapon.level || 1));
+    }
+    if (el === 'ice' && hasElementalUpgrade(state, 'chillChancePlus') && rng(0, 100) < 35) {
+      applyStatusEffect(enemy, 'freeze', getFreezeDuration(state, 2.5));
+    }
+    if (el === 'lightning' && hasElementalUpgrade(state, 'zapChancePlus') && rng(0, 100) < 35) {
+      applyStatusEffect(enemy, 'stun', 1.5);
+    }
+    // Lightning Rod mark (spec §1.3): lightning-struck enemies get marked.
+    if (el === 'lightning' && hasElementalUpgrade(state, 'lightningRod') && !state.lightningRodMarks.includes(enemy.id)) {
+      state.lightningRodMarks.push(enemy.id);
+      addEffect(state, enemy.x, enemy.y, 'zap', '#FBBF24', 0, enemy.radius + 6);
+    }
+  }
+  // Overcharge (spec §1.3): crits arc a bolt to one nearby enemy.
+  if (isCrit && hasElementalUpgrade(state, 'overcharge')) {
+    for (const other of state.enemies) {
+      if (!other.alive || other.id === enemy.id) continue;
+      if (dist(enemy, other) > 100 + other.radius) continue;
+      addEffect(state, other.x, other.y, 'zap', '#FBBF24', 0, 24);
+      dealDamage(state, other, Math.max(1, actual * 0.5), false);
+      break;
     }
   }
   
@@ -1219,7 +1435,7 @@ function destroyResourceNode(state: GameState, node: ResourceNode): void {
   for (let i = 0; i < count; i++) {
     dropPickup(state, node.x + rng(-26, 26), node.y + rng(-26, 26), 'material', 1, node.kind === 'crystal' ? '🪙' : '🔩');
   }
-  const eggChance = (node.kind === 'crystal' ? 34 : node.kind === 'coral' ? 22 : 14) + (hasRelic(state, 'broodCovenant') ? 12 : 0);
+  const eggChance = (node.kind === 'crystal' ? 34 : node.kind === 'coral' ? 22 : 14) + (hasRelic(state, 'broodCovenant') ? 12 : 0) + (hasPetUpgrade(state, 'eggChance') ? 8 : 0);
   if (rng(0, 100) < eggChance + state.player.luck * 0.15) {
     dropPickup(state, node.x + rng(-18, 18), node.y + rng(-18, 18), 'egg', 1, '🥚');
   }
@@ -1234,6 +1450,13 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   state.combo.timer = getComboDuration(state);
   state.combo.best = Math.max(state.combo.best, state.combo.count);
   state.stats.bestCombo = state.combo.best;
+
+  // Combo tier-up reward (spec §1.6): fires exactly once per tier reached.
+  const tierIdx = COMBO_TIER_ORDER.indexOf(getComboTier(state));
+  if (tierIdx > state.combo.tierRewarded) {
+    state.combo.tierRewarded = tierIdx;
+    triggerComboTierUp(state, enemy.x, enemy.y, COMBO_TIER_ORDER[tierIdx]);
+  }
   
   // Reserve freeze frames for meaningful kills; freezing on every small enemy
   // makes survivor waves feel juddery once the screen gets busy.
@@ -1301,6 +1524,51 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   if (hasRelic(state, 'comboEngine') && state.combo.count % (COMBO_BONUS_STEP * 2) === 0) {
     triggerComboSurge(state, enemy.x, enemy.y);
   }
+  // Phoenix Ember (spec §1.4): every kill ignites nearby enemies.
+  if (hasRelic(state, 'phoenixEmber')) {
+    const igniteR = 110;
+    addDmgNum(state, enemy.x, enemy.y - 62, '🔥 ignite', '#EF4444');
+    addEffect(state, enemy.x, enemy.y, 'ring', '#EF4444', 0, igniteR);
+    for (const e of state.enemies) {
+      if (!e.alive || e.id === enemy.id) continue;
+      if (dist(enemy, e) <= igniteR + e.radius) {
+        applyStatusEffect(e, 'burn', 3, 2 + Math.floor(state.wave.number * 0.3));
+      }
+    }
+  }
+  // Elemental kill upgrades (spec §1.3): react to the dying enemy's status.
+  const dyingBurned = enemy.statusEffects?.some(s => s.type === 'burn');
+  const dyingFrozen = enemy.statusEffects?.some(s => s.type === 'freeze');
+  const burnTick = 2 + (sourceWeapon?.level || 1);
+  // Burn Spread: burning enemies ignite nearby enemies on death.
+  if (dyingBurned && hasElementalUpgrade(state, 'burnSpread')) {
+    addDmgNum(state, enemy.x, enemy.y - 52, '🔥 spread', '#EF4444');
+    for (const e of state.enemies) {
+      if (!e.alive || e.id === enemy.id) continue;
+      if (dist(enemy, e) <= 90 + e.radius) applyStatusEffect(e, 'burn', 3, burnTick);
+    }
+  }
+  // Explosive Death: burning enemies explode on death.
+  if (dyingBurned && hasElementalUpgrade(state, 'explosiveDeath')) {
+    const blastR = 70;
+    addEffect(state, enemy.x, enemy.y, 'ring', '#FB923C', 0, blastR);
+    for (const e of state.enemies) {
+      if (!e.alive || e.id === enemy.id) continue;
+      if (dist(enemy, e) <= blastR + e.radius) dealDamage(state, e, 15 * getPlayerDamageMult(state), false);
+    }
+  }
+  // Permafrost: frozen enemies freeze nearby enemies on death.
+  if (dyingFrozen && hasElementalUpgrade(state, 'permafrost')) {
+    addEffect(state, enemy.x, enemy.y, 'ring', '#60A5FA', 0, 90);
+    for (const e of state.enemies) {
+      if (!e.alive || e.id === enemy.id) continue;
+      if (dist(enemy, e) <= 90 + e.radius) applyStatusEffect(e, 'freeze', getFreezeDuration(state, 2.5));
+    }
+  }
+  // Static (spec §1.3): kills refund 2s of ability cooldown.
+  if (hasElementalUpgrade(state, 'static')) {
+    state.player.abilityCooldown = Math.max(0, state.player.abilityCooldown - 2);
+  }
   if (hasRelic(state, 'huntersMark') && enemy.elite !== 'none') {
     addDmgNum(state, enemy.x, enemy.y - 54, 'bounty', '#FBBF24');
     for (let i = 0; i < 4; i++) {
@@ -1320,7 +1588,7 @@ function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): 
   if (!enemy.isBoss && rng(0, 100) < 5 + state.player.luck * 0.08) {
     dropPickup(state, enemy.x + rng(-18, 18), enemy.y + rng(-18, 18), 'heal', Math.max(4, Math.round(state.player.maxHp * 0.06)), '🧡');
   }
-  if (!enemy.isBoss && rng(0, 100) < 1.4 + state.player.luck * 0.04) {
+  if (!enemy.isBoss && rng(0, 100) < 1.4 + state.player.luck * 0.04 + (hasPetUpgrade(state, 'eggChance') ? 8 : 0)) {
     dropPickup(state, enemy.x + rng(-18, 18), enemy.y + rng(-18, 18), 'egg', 1, '🥚');
   }
   
@@ -1356,6 +1624,27 @@ function triggerComboSurge(state: GameState, x: number, y: number): void {
       dealDamage(state, e, dmg * getPlayerDamageMult(state), false);
     }
   }
+}
+
+/**
+ * Combo tier-up reward (spec §1.6): small heal + material burst + visible
+ * feedback, fired exactly once per tier reached. Modest on purpose — it must
+ * feel satisfying without trivializing the run. Pushes a `comboTierUp` event
+ * so the UI can flash the screen edge.
+ */
+function triggerComboTierUp(state: GameState, x: number, y: number, tier: ComboTier): void {
+  const heal = Math.max(1, Math.round(state.player.maxHp * 0.08));
+  state.player.hp = Math.min(state.player.maxHp, state.player.hp + heal);
+  const tierName = tier === 'none' ? 'COMBO' : COMBO_TIER_NAMES[tier];
+  const tierColor = tier === 'none' ? '#FFFFFF' : COMBO_TIER_COLORS[tier];
+  addDmgNum(state, state.player.x, state.player.y - 60, `${tierName}! +${heal} ❤️`, tierColor);
+  addEffect(state, state.player.x, state.player.y, 'burst', tierColor, 0, 70);
+  addEffect(state, state.player.x, state.player.y, 'ring', tierColor, 0, 96);
+  dropPickup(state, x + rng(-14, 14), y + rng(-14, 14), 'material', 2, '🪙');
+  dropPickup(state, x + rng(-18, 18), y + rng(-18, 18), 'material', 2, '🪙');
+  playSound(state, 'evolve');
+  haptic(state, 'light');
+  state.events.push({ kind: 'comboTierUp', tier });
 }
 
 function spawnDeathParticles(state: GameState, x: number, y: number, emoji: string, color: string, count: number): void {
@@ -1433,7 +1722,9 @@ function checkProjectileHits(state: GameState): void {
           const dodgeRoll = rng(0, 100);
           if (dodgeRoll >= p.dodge) {
             if (!tryBarrierAbsorb(state)) {
-              const dmg = Math.max(1, Math.round(proj.damage - p.armor));
+              const baseDmg = Math.max(1, Math.round(proj.damage - p.armor));
+              // Nature Turtle aura (spec §1.5): reduce incoming damage.
+              const dmg = Math.max(1, Math.round(baseDmg * (1 - getPetDamageReduction(state))));
               p.hp -= dmg;
               p.invulnTimer = INVULN_TIME;
               state.stats.damageTaken += dmg;
@@ -1507,6 +1798,11 @@ function applyPetOnHitPerks(state: GameState, pet: PetCompanion, target: Enemy, 
       dealDamage(state, other, projDamage * 0.5, false);
     }
   }
+  // Turtle "Venom Spores" perk: shots apply a poison DoT (spec §1.5).
+  if (hasPerk(pet, 'turtle_venom')) {
+    applyStatusEffect(target, 'poison', 3, 2 + Math.floor(pet.level / 2));
+    addEffect(state, target.x, target.y + 10, 'smoke', '#10B981', 0, target.radius);
+  }
 }
 
 // ═══ ENEMY-PLAYER COLLISION ═══
@@ -1523,10 +1819,21 @@ function checkEnemyPlayerHits(state: GameState): void {
           let dmg = Math.max(1, Math.round(e.damage - p.armor));
           if (e.chargeTimer > 0) dmg = Math.round(dmg * 1.35);
           if (state.waveModifier === 'hazardous') dmg = Math.round(dmg * 1.4);
+          // Cauterize (spec §1.3): burning enemies deal 20% less contact damage.
+          if (hasElementalUpgrade(state, 'cauterize') && e.statusEffects?.some(s => s.type === 'burn')) {
+            dmg = Math.max(1, Math.round(dmg * 0.8));
+          }
+          // Nature Turtle aura (spec §1.5): reduce incoming damage.
+          dmg = Math.max(1, Math.round(dmg * (1 - getPetDamageReduction(state))));
           p.hp -= dmg;
           p.invulnTimer = INVULN_TIME;
           state.stats.damageTaken += dmg;
           state.stats.wasHit = true;
+          // Ice Armor (spec §1.3): being hit freezes the attacker.
+          if (hasElementalUpgrade(state, 'iceArmor') && e.alive) {
+            applyStatusEffect(e, 'freeze', getFreezeDuration(state, 2));
+            addEffect(state, e.x, e.y, 'ring', '#60A5FA', 0, e.radius + 8);
+          }
 
           if (p.characterId === 'squid') {
             const reflect = Math.max(1, Math.round(dmg * 0.1));
@@ -1629,7 +1936,9 @@ function updateHazards(state: GameState, dt: number): void {
     if (h.life !== undefined) h.life -= dt;
     if (p.invulnTimer <= 0 && !p.abilityActive && dist(p, h) < p.radius + h.radius * 0.72) {
       if (!tryBarrierAbsorb(state)) {
-        const dmg = Math.max(1, Math.round(h.damage - p.armor * 0.5));
+        const baseDmg = Math.max(1, Math.round(h.damage - p.armor * 0.5));
+        // Nature Turtle aura (spec §1.5): reduce incoming damage.
+        const dmg = Math.max(1, Math.round(baseDmg * (1 - getPetDamageReduction(state))));
         p.hp -= dmg;
         p.invulnTimer = INVULN_TIME;
         state.stats.damageTaken += dmg;
@@ -1649,21 +1958,25 @@ const PET_ADJECTIVES: Record<PetKind, string[]> = {
   snapper: ['Swift', 'Keen', 'Fierce', 'Bold', 'Sharp', 'Wild', 'Quick', 'Brave'],
   spark: ['Zappy', 'Bright', 'Crackling', 'Vivid', 'Flash', 'Storm', 'Arc', 'Volt'],
   mender: ['Gentle', 'Calm', 'Warm', 'Kind', 'Soothing', 'Soft', 'Pure', 'Grace'],
+  turtle: ['Mossy', 'Sturdy', 'Boulder', 'Leafy', 'Gnarled', 'Deep', 'Serene', 'Iron'],
 };
 const PET_EVOLVED_NAMES: Record<PetKind, string[]> = {
   snapper: ['Crimson', 'Fang', 'Razor', 'Predator'],
   spark: ['Thunder', 'Tempest', 'Nova', 'Plasma'],
   mender: ['Elder', 'Sage', 'Oracle', 'Tidal'],
+  turtle: ['Shelled', 'Bastion', 'Granite', 'Guardian'],
 };
 const PET_PRIME_NAMES: Record<PetKind, string[]> = {
   snapper: ['Primal', 'Apex', 'Leviathan'],
   spark: ['Stormborn', 'Supernova', 'Celestial'],
   mender: ['Ancient', 'Abyssal', 'Divine'],
+  turtle: ['World', 'Titan', 'Elderwood'],
 };
 const PET_EMOJI_BY_GEN: Record<PetKind, string[]> = {
   snapper: ['🦐', '🦞', '🦈'],
   spark: ['🪼', '⚡', '🌩️'],
   mender: ['🐚', '🐠', '🐋'],
+  turtle: ['🐢', '🐊', '🐲'],
 };
 
 function generatePetName(kind: PetKind, generation: number): string {
@@ -1687,9 +2000,22 @@ function getPetEmoji(kind: PetKind, generation: number): string {
   return emojis[0];
 }
 
+// Hatch weights (spec §1.5): the nature turtle is rarer than the core trio.
+const HATCH_POOL: ReadonlyArray<readonly [PetKind, number]> = [
+  ['snapper', 3],
+  ['spark', 3],
+  ['mender', 3],
+  ['turtle', 1],
+];
+const HATCH_TOTAL_WEIGHT = HATCH_POOL.reduce((sum, [, w]) => sum + w, 0);
+
 function hatchPet(state: GameState): void {
-  const kinds: PetKind[] = ['snapper', 'spark', 'mender'];
-  const kind = kinds[rngInt(0, kinds.length - 1)];
+  let roll = rng(0, HATCH_TOTAL_WEIGHT);
+  let kind: PetKind = 'snapper';
+  for (const [k, w] of HATCH_POOL) {
+    roll -= w;
+    if (roll <= 0) { kind = k; break; }
+  }
   const def = PET_DEFS[kind];
   if (state.pets.length + state.pendingHatches.length >= MAX_PETS) {
     state.materials += 12;
@@ -1800,6 +2126,7 @@ function updateCombo(state: GameState, dt: number): void {
   state.combo.timer = Math.max(0, state.combo.timer - dt);
   if (state.combo.timer <= 0) {
     state.combo.count = 0;
+    state.combo.tierRewarded = 0;
   }
 }
 
@@ -2105,6 +2432,33 @@ const LU_POOL: readonly LevelUpPoolEntry[] = Object.freeze([
   Object.freeze({ stat: 'critChance', emoji: '🎯', name: 'Crit Chance', amounts: Object.freeze([3, 5, 8, 12]), fmt: '+{n}% Crit' }),
 ]);
 
+type PetUpgradePoolEntry = Readonly<{
+  petUpgradeId: PetUpgradeId;
+  emoji: string;
+  name: string;
+  desc: string;
+  rarity: Rarity;
+}>;
+
+type ElementalUpgradePoolEntry = Readonly<{
+  kind: 'elemental';
+  elementalUpgradeId: ElementalUpgradeId;
+  emoji: string;
+  name: string;
+  desc: string;
+  rarity: Rarity;
+  element: Exclude<Element, 'none'>;
+}>;
+
+// Pet-support level-up upgrades (spec §1.5) — each is one-shot and tagged
+// 'nature', feeding the nature affinity threshold (2/4 tags) that scales all
+// pets. Effects are engine-queried via `state.petUpgrades` (not stat closures).
+const PET_LU_OPTIONS: readonly PetUpgradePoolEntry[] = Object.freeze([
+  Object.freeze({ petUpgradeId: 'eggChance', emoji: '🥚', name: 'Egg Charm', desc: 'Eggs are more likely to drop from kills and caches.', rarity: 'uncommon' }),
+  Object.freeze({ petUpgradeId: 'petDamage', emoji: '🦴', name: 'Predator Bond', desc: '+25% pet damage.', rarity: 'rare' }),
+  Object.freeze({ petUpgradeId: 'petAttackSpeed', emoji: '🌪️', name: 'Swift Brood', desc: '+20% pet attack speed.', rarity: 'uncommon' }),
+]);
+
 function shuffle<T>(arr: readonly T[]): T[] {
   const a = [...arr];
   for (let i = a.length - 1; i > 0; i--) {
@@ -2115,7 +2469,25 @@ function shuffle<T>(arr: readonly T[]): T[] {
 }
 
 export function generateLevelUpChoices(state: GameState): void {
-  const pool: LevelUpPoolEntry[] = [...LU_POOL];
+  const pool: (LevelUpPoolEntry | PetUpgradePoolEntry | ElementalUpgradePoolEntry)[] = [...LU_POOL];
+  // Pet-support options (spec §1.5): one-shot, so exclude already-owned ids.
+  for (const opt of PET_LU_OPTIONS) {
+    if (!state.petUpgrades.includes(opt.petUpgradeId)) pool.push(opt);
+  }
+  // Elemental upgrades (spec §1.3): one-shot per id, offered alongside stats.
+  for (const def of ELEMENTAL_UPGRADE_LIST) {
+    if (!state.elementUpgrades.includes(def.id)) {
+      pool.push(Object.freeze({
+        kind: 'elemental',
+        elementalUpgradeId: def.id,
+        emoji: def.emoji,
+        name: def.name,
+        desc: def.desc,
+        rarity: def.rarity,
+        element: def.element,
+      }));
+    }
+  }
   // Add heal if low HP
   if (state.player.hp < state.player.maxHp * 0.7) {
     pool.push(Object.freeze({ stat: 'heal', emoji: '🧡', name: 'Heal', amounts: Object.freeze([20, 30, 50, 75]), fmt: 'Heal {n}% HP' }));
@@ -2125,6 +2497,16 @@ export function generateLevelUpChoices(state: GameState): void {
   state.levelUpOptions = [];
   state._levelUpApply = [];
   shuffled.forEach((opt, idx) => {
+    if ('petUpgradeId' in opt) {
+      state.levelUpOptions.push({ emoji: opt.emoji, name: opt.name, desc: opt.desc, rarity: opt.rarity, index: idx, element: 'nature', petUpgradeId: opt.petUpgradeId });
+      state._levelUpApply.push(() => {});
+      return;
+    }
+    if ('elementalUpgradeId' in opt) {
+      state.levelUpOptions.push({ emoji: opt.emoji, name: opt.name, desc: opt.desc, rarity: opt.rarity, index: idx, element: opt.element, elementalUpgradeId: opt.elementalUpgradeId });
+      state._levelUpApply.push(() => {});
+      return;
+    }
     const rarity = rollRarity(state.player.luck);
     const ri = rarities.indexOf(rarity);
     const amount = opt.amounts[ri] ?? opt.amounts[0];
@@ -2166,6 +2548,24 @@ function applyStatChange(p: PlayerState, stat: string, amount: number): void {
 export function applyLevelUpChoice(state: GameState, index: number): void {
   const fn = state._levelUpApply?.[index];
   if (fn) fn(state.player);
+  // Record pet-support upgrade ids (spec §1.5); their effects are
+  // engine-queried via `state.petUpgrades` elsewhere in the pipeline.
+  const opt = state.levelUpOptions?.[index];
+  if (opt?.petUpgradeId && !state.petUpgrades.includes(opt.petUpgradeId)) {
+    state.petUpgrades.push(opt.petUpgradeId);
+    addDmgNum(state, state.player.x, state.player.y - 44, `${opt.emoji} ${opt.name}`, '#22C55E');
+    addEffect(state, state.player.x, state.player.y, 'burst', '#22C55E', 0, 54);
+  }
+  // Record elemental upgrade ids (spec §1.3); their effects are
+  // engine-queried via `state.elementUpgrades` in the combat pipelines.
+  if (opt?.elementalUpgradeId && !state.elementUpgrades.includes(opt.elementalUpgradeId)) {
+    state.elementUpgrades.push(opt.elementalUpgradeId);
+    const def = ELEMENTAL_UPGRADES[opt.elementalUpgradeId];
+    if (def) {
+      addDmgNum(state, state.player.x, state.player.y - 44, `${def.emoji} ${def.name}`, ELEMENT_META[def.element].color);
+      addEffect(state, state.player.x, state.player.y, 'burst', ELEMENT_META[def.element].color, 0, 54);
+    }
+  }
   // Brief invulnerability after choosing to prevent instant deaths
   state.player.invulnTimer = Math.max(state.player.invulnTimer, 0.5);
   state.phase = 'playing';
@@ -2208,6 +2608,19 @@ function applyRelicImmediateEffect(state: GameState, relic: RunRelic): void {
       break;
     case 'comboEngine':
       p.attackSpeedMult = Math.min(STAT_CAPS.attackSpeedMult, p.attackSpeedMult + 0.05);
+      break;
+    // Elemental relics (spec §1.4)
+    case 'phoenixEmber':
+      p.maxHp = Math.max(1, p.maxHp - 15);
+      p.hp = Math.min(p.hp, p.maxHp);
+      break;
+    case 'glacialCore':
+      // Dash cooldown +20%: lengthen the ability cooldown permanently.
+      p.abilityMaxCooldown *= 1.2;
+      break;
+    case 'stormSigil':
+      // Ability cooldown +25% (spec §1.4 drawback).
+      p.abilityMaxCooldown *= 1.25;
       break;
   }
   addDmgNum(state, p.x, p.y - 54, `${relic.emoji} ${relic.name}`, '#FBBF24');
@@ -2489,6 +2902,7 @@ export function startNextWave(state: GameState): void {
   state.hazards = [];
   state.combo.count = 0;
   state.combo.timer = 0;
+  state.combo.tierRewarded = 0;
   const nodeBonus = (state.waveModifier === 'rich' ? 3 : 0) + (hasRelic(state, 'salvageOath') ? 2 : 0);
   spawnResourceNodes(state, 2 + Math.floor(state.wave.number / 3) + nodeBonus);
   if (state.waveModifier === 'hazardous' || hasRelic(state, 'salvageOath')) {
@@ -2499,6 +2913,42 @@ export function startNextWave(state: GameState): void {
 }
 
 // ═══ ABILITY ═══
+/** Shortest distance from point (px,py) to segment (ax,ay)-(bx,by). */
+function distToSegment(px: number, py: number, ax: number, ay: number, bx: number, by: number): number {
+  const abx = bx - ax;
+  const aby = by - ay;
+  const lenSq = abx * abx + aby * aby;
+  let t = lenSq > 0 ? ((px - ax) * abx + (py - ay) * aby) / lenSq : 0;
+  t = clamp(t, 0, 1);
+  const cx = ax + abx * t;
+  const cy = ay + aby * t;
+  return Math.hypot(px - cx, py - cy);
+}
+
+/**
+ * Storm Sigil (spec §1.4): after an ability strikes `struck`, arc reduced
+ * damage to up to 2 additional enemies near the original targets.
+ */
+function chainAbilityDamage(state: GameState, struck: Enemy[], abilityDmg: number): void {
+  const struckIds = new Set(struck.map(e => e.id));
+  const chainR = 150;
+  let chainsLeft = 2;
+  for (const origin of struck) {
+    if (chainsLeft <= 0) break;
+    for (const e of state.enemies) {
+      if (chainsLeft <= 0) break;
+      if (!e.alive || struckIds.has(e.id)) continue;
+      if (dist(origin, e) > chainR + e.radius) continue;
+      chainsLeft--;
+      addEffect(state, e.x, e.y, 'zap', '#FBBF24', 0, 26);
+      dealDamage(state, e, abilityDmg * 0.6, false);
+    }
+  }
+  if (chainsLeft < 2) {
+    addDmgNum(state, state.player.x, state.player.y - 40, '⚡ chain', '#FBBF24');
+  }
+}
+
 export function activateAbility(state: GameState, input: Vec2 | GameInput): void {
   const normalizedInput = normalizeGameInput(input);
   const p = state.player;
@@ -2523,6 +2973,8 @@ export function activateAbility(state: GameState, input: Vec2 | GameInput): void
         const nearest = findNearest(p, state.enemies, 500);
         dir = nearest ? norm(sub(nearest, p)) : { x: 1, y: 0 };
       }
+      const startX = p.x;
+      const startY = p.y;
       const point = resolveArenaObstacleCollision(
         clamp(p.x + dir.x * dashDist, p.radius, state.arena.width - p.radius),
         clamp(p.y + dir.y * dashDist, p.radius, state.arena.height - p.radius),
@@ -2530,16 +2982,34 @@ export function activateAbility(state: GameState, input: Vec2 | GameInput): void
       );
       p.x = clamp(point.x, p.radius, state.arena.width - p.radius);
       p.y = clamp(point.y, p.radius, state.arena.height - p.radius);
+      // Glacial Core (spec §1.4): dash freezes enemies you pass through.
+      if (hasRelic(state, 'glacialCore')) {
+        addEffect(state, p.x, p.y, 'burst', '#60A5FA', 0, 64);
+        for (const e of state.enemies) {
+          if (!e.alive) continue;
+          if (distToSegment(e.x, e.y, startX, startY, p.x, p.y) <= e.radius + 30) {
+            applyStatusEffect(e, 'freeze', 2.5);
+            addEffect(state, e.x, e.y, 'ring', '#60A5FA', 0, e.radius + 8);
+          }
+        }
+      }
       break;
     }
     case 'squid': {
       p.abilityCooldown = p.abilityMaxCooldown;
       const pulseR = 150;
+      const pulseDmg = 30 * p.damageMult;
+      const struck: Enemy[] = [];
       for (const e of state.enemies) {
         if (!e.alive) continue;
         if (dist(p, e) <= pulseR + e.radius) {
-          dealDamage(state, e, 30 * p.damageMult, false);
+          dealDamage(state, e, pulseDmg, false);
+          struck.push(e);
         }
+      }
+      // Storm Sigil (spec §1.4): ability chains to 2 extra targets.
+      if (hasRelic(state, 'stormSigil') && struck.length > 0) {
+        chainAbilityDamage(state, struck, pulseDmg);
       }
       state.shake = { x: 0, y: 0, timer: 0.3, intensity: 8 };
       break;
@@ -2587,6 +3057,8 @@ export function extractHudData(state: GameState): HudData {
     waveModifier: state.waveModifier,
     modifierAnnounceTimer: state.modifierAnnounceTimer,
     petSynergies: getPetSynergies(state.pets),
+    natureTags: getNatureTagCount(state),
+    natureBonusPct: getPetNatureBonusPct(state),
     oxygen: p.oxygen,
     maxOxygen: p.maxOxygen,
     inWater: state.inWater,

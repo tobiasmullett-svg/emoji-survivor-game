@@ -9,7 +9,9 @@ import type { HapticKind } from '../services/haptics';
  */
 export type GameEvent =
   | { kind: 'sound'; id: SoundName }
-  | { kind: 'haptic'; id: HapticKind };
+  | { kind: 'haptic'; id: HapticKind }
+  /** Combo tier-up (spec §1.6): fired once per tier reached. UI flashes the screen edge. */
+  | { kind: 'comboTierUp'; tier: ComboTier };
 
 export type CharacterId = 'crab' | 'octopus' | 'squid';
 export type GamePhase = 'waveAnnounce' | 'playing' | 'collecting' | 'shopping' | 'levelup' | 'relic' | 'paused' | 'gameover';
@@ -18,7 +20,7 @@ export type WeaponId = 'stick' | 'sword' | 'claw' | 'pistol' | 'smg' | 'shotgun'
 export type ItemId = 'heart' | 'sneakers' | 'muscles' | 'shield' | 'clover' | 'energyDrink' | 'scope' | 'magnet' | 'piggyBank';
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary';
 export type ResourceNodeKind = 'coral' | 'kelp' | 'crystal';
-export type PetKind = 'snapper' | 'spark' | 'mender';
+export type PetKind = 'snapper' | 'spark' | 'mender' | 'turtle';
 export type RelicId =
   | 'glassTide'
   | 'abyssalMagnet'
@@ -27,7 +29,56 @@ export type RelicId =
   | 'broodCovenant'
   | 'oxygenDebt'
   | 'salvageOath'
-  | 'comboEngine';
+  | 'comboEngine'
+  // Elemental relics (spec §1.4)
+  | 'phoenixEmber'
+  | 'glacialCore'
+  | 'stormSigil';
+
+/** Spine elements (spec §1.1). 'none' = no elemental identity (untagged). */
+export type Element = 'fire' | 'ice' | 'lightning' | 'none';
+
+/**
+ * First-class ids for behavioral elemental upgrades (spec §1.3), stored on
+ * `GameState.elementUpgrades` so the engine's damage/fire pipeline can query
+ * them. Elemental upgrades are *behavioral* (spread, pierce, ignite chance) —
+ * they cannot be expressed as `+N stat` closures, hence this dedicated id type.
+ */
+export type ElementalUpgradeId =
+  // Fire (6): Ignition — spread, explode
+  | 'igniteChancePlus'
+  | 'burnSpread'
+  | 'emberTrail'
+  | 'explosiveDeath'
+  | 'flameReach'
+  | 'cauterize'
+  // Ice (6): Chill — control, defense
+  | 'chillChancePlus'
+  | 'deepFreeze'
+  | 'iceArmor'
+  | 'shatter'
+  | 'permafrost'
+  | 'coldSnap'
+  // Lightning (6): Storm — multi-hit, chain
+  | 'chainPlus'
+  | 'zapChancePlus'
+  | 'overcharge'
+  | 'stormField'
+  | 'lightningRod'
+  | 'static';
+
+/**
+ * Elemental tag carried by relics and pet-axis level-up upgrades (spec §1.2/§1.5).
+ * 'nature' is the pet-support element: it is NOT a spine element (fire/ice/
+ * lightning), it only feeds the nature affinity threshold that scales all pets.
+ */
+export type ElementTag = Element | 'nature';
+
+/** First-class ids for the 3 pet-support level-up upgrades (spec §1.5). */
+export type PetUpgradeId = 'eggChance' | 'petDamage' | 'petAttackSpeed';
+
+/** Combo tier ladder (spec §1.6): bronze → silver → gold → platinum. */
+export type ComboTier = 'none' | 'bronze' | 'silver' | 'gold' | 'platinum';
 
 export interface PlayerState {
   x: number; y: number;
@@ -264,6 +315,12 @@ export interface LevelUpOption {
   desc: string;
   rarity: Rarity;
   index: number;
+  /** Elemental tag of the upgrade (spec §1.2); set on pet-axis options ('nature'). */
+  element?: ElementTag;
+  /** Pet-support upgrade id (spec §1.5); set when the option is a pet upgrade. */
+  petUpgradeId?: PetUpgradeId;
+  /** Elemental upgrade id (spec §1.3); set when the option is an elemental upgrade. */
+  elementalUpgradeId?: ElementalUpgradeId;
 }
 
 export interface RelicChoice {
@@ -273,6 +330,8 @@ export interface RelicChoice {
   desc: string;
   drawback: string;
   rarity: Rarity;
+  /** Elemental tag (spec §1.2/§1.4); set on the 3 elemental relics. */
+  element?: ElementTag;
 }
 
 export interface RunRelic extends RelicChoice {
@@ -298,7 +357,7 @@ export interface GameState {
   wave: WaveState;
   camera: Vec2;
   materials: number;
-  combo: { count: number; timer: number; best: number };
+  combo: { count: number; timer: number; best: number; tierRewarded: number };
   shake: { x: number; y: number; timer: number; intensity: number };
   phase: GamePhase;
   prevPhase: GamePhase;
@@ -306,6 +365,20 @@ export interface GameState {
   shopSlots: ShopSlot[];
   levelUpOptions: LevelUpOption[];
   _levelUpApply: Array<(p: PlayerState) => void>;
+  /**
+   * Behavioral elemental upgrades owned this run (spec §1.3). First-class so
+   * the damage/fire pipeline can query them — NOT hidden in `_levelUpApply`.
+   * Ids come from `ElementalUpgradeId`; empty until the upgrades system is wired.
+   */
+  elementUpgrades: ElementalUpgradeId[];
+  /** Enemy ids marked by Lightning Rod (spec §1.3); next hit on them crits. */
+  lightningRodMarks: number[];
+  /** Tick accumulator for Ember Trail burn patches (spec §1.3). */
+  emberTrailTimer: number;
+  /** Tick accumulator for Storm Field aura pulses (spec §1.3). */
+  stormFieldTimer: number;
+  /** Pet-support level-up upgrades owned this run (spec §1.5), ids from `PetUpgradeId`. */
+  petUpgrades: PetUpgradeId[];
   relics: RunRelic[];
   relicChoices: RelicChoice[];
   rerollCost: number;
@@ -346,6 +419,7 @@ export interface CharacterDef {
 export interface WeaponDef {
   id: WeaponId; name: string; emoji: string;
   kind: 'melee' | 'ranged' | 'special';
+  element: Element;
   damage: number; range: number; cooldown: number;
   projCount: number; spread: number; piercing: boolean;
   projEmoji: string; projSpeed: number;
@@ -371,7 +445,7 @@ export interface HudData {
   materials: number; level: number; xp: number; xpToNext: number;
   abilityCd: number; abilityMaxCd: number; abilityEmoji: string;
   comboCount: number; comboTimer: number; comboMaxTime: number; bestCombo: number;
-  comboTier?: 'none' | 'bronze' | 'silver' | 'gold' | 'platinum';
+  comboTier?: ComboTier;
   petCount: number; resourceCount: number;
   phase: GamePhase;
   equippedWeapons: { id: WeaponId; emoji: string; evolved: boolean; killCount: number; evolveKills: number; level: number; maxLevel: number }[];
@@ -379,6 +453,10 @@ export interface HudData {
   waveModifier?: WaveModifier;
   modifierAnnounceTimer?: number;
   petSynergies?: { kind: PetKind; count: number; bonusPct: number }[];
+  /** Nature affinity tags owned (spec §1.5): pet-support upgrades + nature pets. */
+  natureTags?: number;
+  /** Nature affinity damage bonus % applied to all pets (spec §1.5). */
+  natureBonusPct?: number;
   oxygen?: number;
   maxOxygen?: number;
   inWater?: boolean;

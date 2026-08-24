@@ -3,12 +3,13 @@ import { View, Text, StyleSheet, Dimensions, BackHandler, Platform } from 'react
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useKeepAwake } from 'expo-keep-awake';
 import { useIsFocused } from '@react-navigation/native';
-import type { GameState, GamePhase, HudData, CharacterId } from '../engine/types';
+import type { GameState, GamePhase, HudData, CharacterId, ComboTier } from '../engine/types';
 import { Vec2 } from '../engine/math';
 import {
   initGameState, updateGame, extractHudData, drainEvents,
   activateAbility, pauseGame, resumeGame,
   applyLevelUpChoice, applyRelicChoice, startNextWave,
+  COMBO_TIER_NAMES, COMBO_TIER_COLORS,
 } from '../engine/GameEngine';
 import { haptic } from '../services/haptics';
 import { saveHighScore, getActiveProfile, updateProfile } from '../services/storage';
@@ -98,6 +99,8 @@ export default function GameScreen() {
   const [initializedRunKey, setInitializedRunKey] = useState<string | null>(null);
   const [showControlsHint, setShowControlsHint] = useState<boolean>(Platform.OS === 'web');
   const [showTutorial, setShowTutorial] = useState(false);
+  // Screen-edge flash shown briefly on combo tier-up (spec §1.6).
+  const [comboFlash, setComboFlash] = useState<{ tier: ComboTier; id: number } | null>(null);
   const showTutorialRef = useRef(false);
   const inputEnabledRef = useRef(false);
   const scoreSaved = useRef(false);
@@ -127,6 +130,13 @@ export default function GameScreen() {
       aimInputRef.current = undefined;
     }
   }, [inputEnabled]);
+
+  // Auto-clear the combo tier-up screen-edge flash (spec §1.6).
+  useEffect(() => {
+    if (!comboFlash) return;
+    const t = setTimeout(() => setComboFlash(null), 700);
+    return () => clearTimeout(t);
+  }, [comboFlash]);
 
   // Auto-dismiss controls hint after 5 seconds
   useEffect(() => {
@@ -278,7 +288,11 @@ export default function GameScreen() {
         for (let i = 0; i < events.length; i++) {
           const ev = events[i];
           if (ev.kind === 'sound') playSound(ev.id);
-          else haptic(ev.id);
+          else if (ev.kind === 'haptic') haptic(ev.id);
+          else if (ev.kind === 'comboTierUp') {
+            playSound('evolve');
+            setComboFlash({ tier: ev.tier, id: Date.now() + Math.random() });
+          }
         }
       }
       animationFrameId = requestAnimationFrame(loop);
@@ -677,6 +691,14 @@ export default function GameScreen() {
       )}
       {/* Minimap */}
       <Minimap gameState={gameRef} />
+      {/* Combo tier-up screen-edge flash (spec §1.6) */}
+      {comboFlash && comboFlash.tier !== 'none' && (
+        <View pointerEvents="none" style={[s.comboFlash, { borderColor: COMBO_TIER_COLORS[comboFlash.tier] }]}>
+          <Text style={[s.comboFlashText, { color: COMBO_TIER_COLORS[comboFlash.tier] }]}>
+            {COMBO_TIER_NAMES[comboFlash.tier]}!
+          </Text>
+        </View>
+      )}
       {/* Achievement toasts */}
       {canRenderActiveRun && achievementToast.length > 0 && (
         <View style={s.achievementToast}>
@@ -725,6 +747,8 @@ const s = StyleSheet.create({
   controlsHint: { position: 'absolute', bottom: 12, alignSelf: 'center', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 10, backgroundColor: 'rgba(15,25,60,0.65)', borderWidth: 1, borderColor: 'rgba(148,163,184,0.18)', zIndex: 11 },
   controlsText: { color: '#94A3B8', fontSize: 11, fontWeight: '600', letterSpacing: 0.5 },
   achievementToast: { position: 'absolute', top: 80, alignSelf: 'center', zIndex: 60, flexDirection: 'row', alignItems: 'center', backgroundColor: 'rgba(15,25,60,0.95)', borderRadius: 14, padding: 14, borderWidth: 1, borderColor: 'rgba(245,158,11,0.4)', gap: 12 },
+  comboFlash: { ...StyleSheet.absoluteFillObject, borderWidth: 7, zIndex: 45, alignItems: 'center', paddingTop: 84 },
+  comboFlashText: { fontSize: 26, fontWeight: '900', letterSpacing: 6, textShadowColor: 'rgba(0,0,0,0.7)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 10 },
   achievementEmoji: { fontSize: 32 },
   achievementTitle: { color: '#F59E0B', fontSize: 10, fontWeight: '800', letterSpacing: 1 },
   achievementName: { color: '#FFF', fontSize: 16, fontWeight: '700' },
