@@ -1,6 +1,14 @@
-import React from 'react';
+import React, { useRef } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
-import type { GameState } from '../../engine/types';
+import type {
+  GameState,
+  Enemy,
+  Pickup,
+  ResourceNode,
+  PetCompanion,
+  HazardZone,
+  HatchAnimation,
+} from '../../engine/types';
 import { ELITE_EMOJIS, ELITE_COLORS } from '../../engine/data';
 import { CRIT_HIT_STOP } from '../../engine/constants';
 import { getPickupRange } from '../../engine/GameEngine';
@@ -11,6 +19,87 @@ interface Props {
   gameState: React.RefObject<GameState | null>;
   frame: number;
 }
+
+/**
+ * Ground shadow ellipse (spec Phase 2 #1): one semi-transparent ellipse under
+ * every entity, offset a few px below it, sized to the entity radius. Small
+ * entities get a smaller *and* slightly darker shadow so they stay grounded.
+ * Pure draw code — no engine involvement.
+ */
+function GroundShadow({ x, y, radius, opacity }: { x: number; y: number; radius: number; opacity?: number }) {
+  const w = Math.max(12, radius * 1.9);
+  const h = Math.max(5, radius * 0.42);
+  const o = opacity ?? Math.min(0.34, Math.max(0.16, 0.34 - radius * 0.004));
+  return (
+    <View
+      pointerEvents="none"
+      style={[
+        s.groundShadow,
+        {
+          left: x - w / 2,
+          top: y + Math.max(4, radius * 0.55) - h / 2,
+          width: w,
+          height: h,
+          borderRadius: h / 2,
+          opacity: o,
+        },
+      ]}
+    />
+  );
+}
+
+/**
+ * Parallax background (spec Phase 2 #3). Three precomputed layers (built once
+ * at module load — zero per-frame array allocation), each drawn behind the
+ * entities and moving at a different fraction of the camera:
+ *   distant silhouette band (slow), mid rocks/coral (medium),
+ *   foreground seaweed/debris (fast, sways/drifts past the camera).
+ * Layer content lives in the same world coordinate space as the arena; each
+ * layer counter-translates by camera * (1 - factor) so its features slide at
+ * `factor` × camera speed.
+ */
+const PARALLAX_DISTANT = Array.from({ length: 24 }, (_, i) => ({
+  id: i,
+  x: (i * 397 + 53) % 2300 - 150,
+  y: (i * 263 + 71) % 2300 - 150,
+  w: 70 + (i % 5) * 26,
+  h: 24 + (i % 4) * 12,
+  r: 0.35 + (i % 4) * 0.07,
+  o: 0.3 + (i % 3) * 0.12,
+}));
+const PARALLAX_MID = Array.from({ length: 16 }, (_, i) => ({
+  id: i,
+  x: (i * 293 + 19) % 2150 - 75,
+  y: (i * 191 + 43) % 2150 - 75,
+  emoji: ['🪨', '🪸', '🐚', '🪨', '🪸', '🌊'][i % 6],
+  size: 22 + (i % 4) * 6,
+  o: 0.32 + (i % 3) * 0.09,
+}));
+const PARALLAX_FORE = Array.from({ length: 12 }, (_, i) => ({
+  id: i,
+  x: (i * 349 + 11) % 2150 - 75,
+  y: (i * 227 + 97) % 2150 - 75,
+  emoji: ['🌿', '🍃', '🌿', '🪸', '💧', '🌊', '🐙', '⚓'][i % 8],
+  size: 26 + (i % 4) * 7,
+  o: 0.55 + (i % 3) * 0.12,
+  sway: 0.012 + (i % 5) * 0.004,
+  amp: 5 + (i % 4) * 3,
+}));
+
+/**
+ * Y-sorted ground pass (spec Phase 2 #2): entities are drawn sorted by world y
+ * (bottom = in front) so overlap reads as depth. Particles/effects
+ * (projectiles, fx, death particles, dmg numbers) are NOT part of this pass —
+ * they still draw on top.
+ */
+type GroundItem =
+  | { kind: 'hazard'; key: string; y: number; h: HazardZone }
+  | { kind: 'node'; key: string; y: number; n: ResourceNode }
+  | { kind: 'pickup'; key: string; y: number; pk: Pickup }
+  | { kind: 'hatch'; key: string; y: number; h: HatchAnimation }
+  | { kind: 'enemy'; key: string; y: number; e: Enemy }
+  | { kind: 'player'; key: string; y: number }
+  | { kind: 'pet'; key: string; y: number; pet: PetCompanion };
 
 function DangerVignette({ frame }: { frame: number }) {
   const pulse = 0.15 + Math.sin(frame * 0.15) * 0.08;
@@ -28,11 +117,67 @@ function CritFlash({ hitStop }: { hitStop: number }) {
 
 export default function GameCanvas({ gameState, frame }: Props) {
   const state = gameState?.current;
+  // ── Camera juice state (Phase 2 #4): render-time only, engine untouched. ──
+  // Boss zoom punch: rising edge of wave.bossSpawned triggers a ~1s zoom pulse.
+  const prevBossSpawned = useRef(false);
+  const bossZoomStart = useRef(-1e9);
+  // Dash / pulse kick: abilityCooldown jumping from ~0 to max is the engine's
+  // only activation signal (octopus dash, squid pulse).
+  const prevAbilityCd = useRef(0);
+  const kickStart = useRef(-1e9);
+  const kickDir = useRef<{ x: number; y: number } | null>(null);
+  const prevPlayerPos = useRef<{ x: number; y: number } | null>(null);
+  const nowMs = Date.now();
+  const ms = (start: number) => (nowMs - start) / 1000;
   if (!state) return <View style={s.viewport} />;
 
   const { player: p, enemies, projectiles, pickups, resourceNodes, pets, dmgNums, effects, deathParticles, hatchAnimations, hazards, camera, shake, arena, sw, sh } = state;
-  const tx = -camera.x + sw / 2 + (shake?.x ?? 0);
-  const ty = -camera.y + sh / 2 + (shake?.y ?? 0);
+
+  // ── Camera juice (Phase 2 #4): render-time transforms, no engine mutation. ──
+  // Boss zoom punch — rising edge of bossSpawned triggers a ~1s zoom pulse.
+  const bossSpawned = state.wave?.bossSpawned ?? false;
+  if (bossSpawned && !prevBossSpawned.current) bossZoomStart.current = nowMs;
+  prevBossSpawned.current = bossSpawned;
+  const zoomT = ms(bossZoomStart.current);
+  const zoomPunch = zoomT < 1 ? Math.sin(zoomT * Math.PI) * 0.1 : 0; // 10% peak, ease in+out
+
+  // Dash / pulse kick — abilityCooldown jump ~0→max is the activation signal.
+  const abilityCd = p?.abilityCooldown ?? 0;
+  const abilityMax = p?.abilityMaxCooldown ?? 0;
+  if (abilityCd > 0 && abilityCd > (prevAbilityCd.current ?? 0) * 1.5 && abilityCd >= abilityMax * 0.9) {
+    kickStart.current = nowMs;
+    const pos = { x: p.x, y: p.y };
+    if (prevPlayerPos.current && (p.characterId === 'octopus' || p.characterId === 'squid')) {
+      const dx = pos.x - prevPlayerPos.current.x;
+      const dy = pos.y - prevPlayerPos.current.y;
+      const len = Math.hypot(dx, dy);
+      kickDir.current = len > 1 ? { x: dx / len, y: dy / len } : null;
+      if (!kickDir.current) {
+        // Squid pulse is radial — aim kick toward the nearest alive enemy.
+        let nearest: Enemy | null = null;
+        let best = 600;
+        for (const e of enemies ?? []) {
+          if (!e?.alive) continue;
+          const d = Math.hypot(e.x - pos.x, e.y - pos.y);
+          if (d < best) { best = d; nearest = e; }
+        }
+        kickDir.current = nearest ? { x: (nearest.x - pos.x) / best, y: (nearest.y - pos.y) / best } : null;
+      }
+    }
+  }
+  prevAbilityCd.current = abilityCd;
+  if (p) prevPlayerPos.current = { x: p.x, y: p.y };
+
+  const kickT = ms(kickStart.current);
+  const kickDur = p?.characterId === 'octopus' ? 0.3 : 0.28;
+  const kickScale = kickT < kickDur ? 1 - (kickT / kickDur) : 0; // ease-out quad
+  const kickMag = p?.characterId === 'octopus' ? 11 : 9;
+  const kickX = (kickDir.current?.x ?? 0) * kickMag * kickScale;
+  const kickY = (kickDir.current?.y ?? 0) * kickMag * kickScale;
+
+  const tx = -camera.x + sw / 2 + (shake?.x ?? 0) + kickX;
+  const ty = -camera.y + sh / 2 + (shake?.y ?? 0) + kickY;
+  const zoomScale = 1 + zoomPunch;
   const vMinX = camera.x - sw / 2 - 60;
   const vMaxX = camera.x + sw / 2 + 60;
   const vMinY = camera.y - sh / 2 - 60;
@@ -46,6 +191,8 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const visibleEffects = (effects ?? []).filter(fx => vis(fx.x, fx.y));
   const visibleDeathParticles = (deathParticles ?? []).filter(dp => vis(dp.x, dp.y));
   const visibleDmgNums = (dmgNums ?? []).filter(d => vis(d.x, d.y));
+  const visibleHatches = (hatchAnimations ?? []).filter(h => vis(h.x, h.y));
+  const visiblePets = (pets ?? []).filter(pet => vis(pet.x, pet.y));
   const effectivePickupRange = getPickupRange(state);
   // Degrade detail based on what's actually on screen, not the wave number.
   const crowded = visibleEnemies.length + visibleProjectiles.length > 45 || visibleEffects.length + visibleDmgNums.length > 35;
@@ -58,100 +205,111 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const bgFrame = Math.floor(frame / (crowded ? 4 : 3));
   const visibleWeaponSprites = (p.weapons ?? []).filter(w => hasWeaponIcon(w.id, w.evolved)).slice(0, crowded ? 2 : 4);
 
-  return (
-    <View style={s.viewport} pointerEvents="none">
-      <View style={[s.world, { transform: [{ translateX: tx }, { translateY: ty }] }]}>
-        <ArenaBackground
-          width={arena.width}
-          height={arena.height}
-          frame={bgFrame}
-          camera={camera}
-          sw={sw}
-          sh={sh}
-          simpleMode={crowded}
-        />
-        {/* Hazards */}
-        {visibleHazards.map(h => {
-          const pulse = 0.5 + Math.sin(h.pulse) * 0.18;
-          return (
-            <View key={h.id} style={[s.hazardWrap, { left: h.x - h.radius, top: h.y - h.radius, width: h.radius * 2, height: h.radius * 2, borderRadius: h.radius }]}>
-              <View style={[s.hazardPulse, { opacity: pulse, width: h.radius * 2, height: h.radius * 2, borderRadius: h.radius }]} />
-              <Text style={s.hazardEmoji}>{h.emoji}</Text>
-            </View>
-          );
-        })}
-        {/* Resource nodes */}
-        {visibleResourceNodes.map(node => (
-          <View key={node.id} style={[s.nodeWrap, { left: node.x - node.radius, top: node.y - node.radius }]}>
-            <View style={[
-              s.nodeGlow,
-              node.kind === 'crystal' && s.nodeGlowCrystal,
-              {
-                width: node.radius * (node.kind === 'crystal' ? 2.8 : 2.1),
-                height: node.radius * (node.kind === 'crystal' ? 2.2 : 1.8),
-                borderRadius: node.radius,
-                opacity: node.flashTimer > 0 ? 0.75 : 1,
-              },
-            ]} />
-            {node.kind === 'crystal' && <View style={s.nodeSparkle} />}
-            <Text style={[s.nodeEmoji, { fontSize: node.radius * 1.65, opacity: node.flashTimer > 0 ? 0.5 : 1 }]}>
-              {node.emoji}
-            </Text>
-            {node.hp < node.maxHp && (
-              <View style={s.nodeHpBg}>
-                <View style={[s.nodeHp, { width: `${Math.max(0, (node.hp / node.maxHp) * 100)}%` }]} />
-              </View>
-            )}
+  // Build the Y-sorted ground pass once per frame: every grounded entity is
+  // pushed with its world y, then sorted ascending so the bottom-most draws
+  // last (in front). Ties are broken by key for a deterministic order.
+  const groundItems: GroundItem[] = [];
+  for (const h of visibleHazards) groundItems.push({ kind: 'hazard', key: `hazard-${h.id}`, y: h.y, h });
+  for (const n of visibleResourceNodes) groundItems.push({ kind: 'node', key: `node-${n.id}`, y: n.y, n });
+  for (const pk of visiblePickups) groundItems.push({ kind: 'pickup', key: `pickup-${pk.id}`, y: pk.y, pk });
+  for (const h of visibleHatches) groundItems.push({ kind: 'hatch', key: `hatch-${h.id}`, y: h.y, h });
+  for (const e of visibleEnemies) groundItems.push({ kind: 'enemy', key: `enemy-${e.id}`, y: e.y, e });
+  groundItems.push({ kind: 'player', key: 'player', y: p.y });
+  for (const pet of visiblePets) groundItems.push({ kind: 'pet', key: `pet-${pet.id}`, y: pet.y, pet });
+  groundItems.sort((a, b) => a.y - b.y || (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
+
+  function renderGroundItem(item: GroundItem): React.ReactNode {
+    switch (item.kind) {
+      case 'hazard': {
+        const h = item.h;
+        const pulse = 0.5 + Math.sin(h.pulse) * 0.18;
+        return (
+          <View key={item.key} style={[s.hazardWrap, { left: h.x - h.radius, top: h.y - h.radius, width: h.radius * 2, height: h.radius * 2, borderRadius: h.radius }]}>
+            <View style={[s.hazardPulse, { opacity: pulse, width: h.radius * 2, height: h.radius * 2, borderRadius: h.radius }]} />
+            <Text style={s.hazardEmoji}>{h.emoji}</Text>
           </View>
-        ))}
-        {/* Pickups */}
-        {visiblePickups.map(pk => {
-          const dx = pk.x - p.x;
-          const dy = pk.y - p.y;
-          const dist = Math.sqrt(dx * dx + dy * dy);
-          const inMagnet = dist < effectivePickupRange && dist > 12;
-          const trailColor = pk.type === 'egg' ? 'rgba(251,191,36,0.5)' : pk.type === 'heal' ? 'rgba(34,197,94,0.5)' : 'rgba(45,212,191,0.4)';
-          return (
-            <React.Fragment key={pk.id}>
-              {inMagnet && !crowded && (
-                <View style={[s.magnetTrail, {
-                  left: pk.x,
-                  top: pk.y,
-                  width: Math.min(dist * 0.6, 30),
-                  backgroundColor: trailColor,
-                  transform: [{ rotate: `${Math.atan2(-dy, -dx)}rad` }],
-                }]} />
-              )}
-              <Text
-                style={[
-                  s.entity,
-                  s.pickup,
-                  { left: pk.x - 8, top: pk.y - 8 + Math.sin((frame + pk.id) * 0.12) * 2, fontSize: 14 },
-                  inMagnet && { transform: [{ scale: 1 + Math.sin(frame * 0.2) * 0.15 }] },
-                ]}
-              >
-                {pk.emoji}
+        );
+      }
+      case 'node': {
+        const node = item.n;
+        return (
+          <React.Fragment key={item.key}>
+            <GroundShadow x={node.x} y={node.y} radius={node.radius * 0.9} />
+            <View style={[s.nodeWrap, { left: node.x - node.radius, top: node.y - node.radius }]}>
+              <View style={[
+                s.nodeGlow,
+                node.kind === 'crystal' && s.nodeGlowCrystal,
+                {
+                  width: node.radius * (node.kind === 'crystal' ? 2.8 : 2.1),
+                  height: node.radius * (node.kind === 'crystal' ? 2.2 : 1.8),
+                  borderRadius: node.radius,
+                  opacity: node.flashTimer > 0 ? 0.75 : 1,
+                },
+              ]} />
+              {node.kind === 'crystal' && <View style={s.nodeSparkle} />}
+              <Text style={[s.nodeEmoji, { fontSize: node.radius * 1.65, opacity: node.flashTimer > 0 ? 0.5 : 1 }]}>
+                {node.emoji}
               </Text>
-            </React.Fragment>
-          );
-        })}
-        {/* Hatch Animations */}
-        {(hatchAnimations ?? []).filter(h => vis(h.x, h.y)).map(h => {
-          const prog = 1 - h.timer / h.maxTimer;
-          // Phase 0-0.4: egg wobbles with increasing intensity
-          // Phase 0.4-0.7: egg cracks, sparks appear
-          // Phase 0.7-1.0: egg explodes, pet emoji scales in
-          const wobble = prog < 0.4
-            ? Math.sin(prog * 80) * (3 + prog * 15)
-            : prog < 0.7
-              ? Math.sin(prog * 120) * (8 + (prog - 0.4) * 20)
-              : 0;
-          const eggOpacity = prog < 0.7 ? 1 : Math.max(0, 1 - (prog - 0.7) / 0.15);
-          const petScale = prog > 0.7 ? Math.min(1.3, (prog - 0.7) / 0.2) : 0;
-          const petOpacity = prog > 0.7 ? Math.min(1, (prog - 0.7) / 0.15) : 0;
-          const crackVisible = prog > 0.35 && prog < 0.75;
-          return (
-            <View key={h.id} style={[s.hatchWrap, { left: h.x - 20, top: h.y - 24 }]}>
+              {node.hp < node.maxHp && (
+                <View style={s.nodeHpBg}>
+                  <View style={[s.nodeHp, { width: `${Math.max(0, (node.hp / node.maxHp) * 100)}%` }]} />
+                </View>
+              )}
+            </View>
+          </React.Fragment>
+        );
+      }
+      case 'pickup': {
+        const pk = item.pk;
+        const dx = pk.x - p.x;
+        const dy = pk.y - p.y;
+        const dist = Math.sqrt(dx * dx + dy * dy);
+        const inMagnet = dist < effectivePickupRange && dist > 12;
+        const trailColor = pk.type === 'egg' ? 'rgba(251,191,36,0.5)' : pk.type === 'heal' ? 'rgba(34,197,94,0.5)' : 'rgba(45,212,191,0.4)';
+        return (
+          <React.Fragment key={item.key}>
+            {inMagnet && !crowded && (
+              <View style={[s.magnetTrail, {
+                left: pk.x,
+                top: pk.y,
+                width: Math.min(dist * 0.6, 30),
+                backgroundColor: trailColor,
+                transform: [{ rotate: `${Math.atan2(-dy, -dx)}rad` }],
+              }]} />
+            )}
+            <GroundShadow x={pk.x} y={pk.y} radius={6.5} />
+            <Text
+              style={[
+                s.entity,
+                s.pickup,
+                { left: pk.x - 8, top: pk.y - 8 + Math.sin((frame + pk.id) * 0.12) * 2, fontSize: 14 },
+                inMagnet && { transform: [{ scale: 1 + Math.sin(frame * 0.2) * 0.15 }] },
+              ]}
+            >
+              {pk.emoji}
+            </Text>
+          </React.Fragment>
+        );
+      }
+      case 'hatch': {
+        const h = item.h;
+        const prog = 1 - h.timer / h.maxTimer;
+        // Phase 0-0.4: egg wobbles with increasing intensity
+        // Phase 0.4-0.7: egg cracks, sparks appear
+        // Phase 0.7-1.0: egg explodes, pet emoji scales in
+        const wobble = prog < 0.4
+          ? Math.sin(prog * 80) * (3 + prog * 15)
+          : prog < 0.7
+            ? Math.sin(prog * 120) * (8 + (prog - 0.4) * 20)
+            : 0;
+        const eggOpacity = prog < 0.7 ? 1 : Math.max(0, 1 - (prog - 0.7) / 0.15);
+        const petScale = prog > 0.7 ? Math.min(1.3, (prog - 0.7) / 0.2) : 0;
+        const petOpacity = prog > 0.7 ? Math.min(1, (prog - 0.7) / 0.15) : 0;
+        const crackVisible = prog > 0.35 && prog < 0.75;
+        return (
+          <React.Fragment key={item.key}>
+            <GroundShadow x={h.x} y={h.y} radius={13} />
+            <View style={[s.hatchWrap, { left: h.x - 20, top: h.y - 24 }]}>
               {/* Glow underneath */}
               <View style={[s.hatchGlow, {
                 backgroundColor: `${h.petColor}22`,
@@ -185,25 +343,20 @@ export default function GameCanvas({ gameState, frame }: Props) {
                 </Text>
               )}
             </View>
-          );
-        })}
-        {/* Enemies */}
-        {visibleEnemies.map(e => {
-          const showTelegraph = e.telegraphTimer > 0 && (e.telegraphType === 'attack' || e.telegraphType === 'charge');
-          const telegraphProg = showTelegraph ? 1 - (e.telegraphTimer / e.telegraphMax) : 0;
-          const chargeTelegraph = e.telegraphType === 'charge';
-          const isElite = e.elite !== 'none';
-          const visualFontSize = e.fontSize + (e.isBoss ? 0 : 2);
-          return (
-            <View key={e.id} style={[s.enemyWrap, { left: e.x - e.radius, top: e.y - e.radius - 8 }]}>
-              <View style={[s.enemyShadow, {
-                width: e.radius * 1.9,
-                height: Math.max(7, e.radius * 0.42),
-                borderRadius: e.radius,
-                left: e.radius * 0.05,
-                top: e.radius + visualFontSize * 0.42,
-                opacity: e.flashTimer > 0 ? 0.16 : 0.26,
-              }]} />
+          </React.Fragment>
+        );
+      }
+      case 'enemy': {
+        const e = item.e;
+        const showTelegraph = e.telegraphTimer > 0 && (e.telegraphType === 'attack' || e.telegraphType === 'charge');
+        const telegraphProg = showTelegraph ? 1 - (e.telegraphTimer / e.telegraphMax) : 0;
+        const chargeTelegraph = e.telegraphType === 'charge';
+        const isElite = e.elite !== 'none';
+        const visualFontSize = e.fontSize + (e.isBoss ? 0 : 2);
+        return (
+          <React.Fragment key={item.key}>
+            <GroundShadow x={e.x} y={e.y} radius={e.radius * 1.05} opacity={e.flashTimer > 0 ? 0.14 : undefined} />
+            <View style={[s.enemyWrap, { left: e.x - e.radius, top: e.y - e.radius - 8 }]}>
               {e.flashTimer > 0 && (
                 <View style={[s.enemyHitPop, {
                   width: e.radius * 2,
@@ -255,8 +408,176 @@ export default function GameCanvas({ gameState, frame }: Props) {
                 </View>
               )}
             </View>
-          );
-        })}
+          </React.Fragment>
+        );
+      }
+      case 'player': {
+        return (
+          <React.Fragment key={item.key}>
+            <GroundShadow x={p.x} y={p.y} radius={p.radius * 1.05} />
+            <View style={[s.playerWrap, { left: p.x - 24, top: p.y - 32 }]}>
+              {visibleWeaponSprites.map((weapon, i) => {
+                const count = visibleWeaponSprites.length;
+                const angle = frame * 0.025 + i * ((Math.PI * 2) / Math.max(1, count));
+                const radius = 28 + Math.min(8, count * 2);
+                const x = 24 + Math.cos(angle) * radius;
+                const y = 23 + Math.sin(angle) * radius * 0.46;
+                return (
+                  <View
+                    key={`${weapon.id}-${i}`}
+                    style={[
+                      s.playerWeaponSprite,
+                      {
+                        left: x - 14,
+                        top: y - 14,
+                        opacity: 0.78 + Math.sin(frame * 0.08 + i) * 0.08,
+                        transform: [{ rotate: `${angle * 0.4}rad` }, { scale: weapon.evolved ? 1.12 : 1 }],
+                      },
+                    ]}
+                  >
+                    <WeaponIcon id={weapon.id} evolved={weapon.evolved} size={28} />
+                  </View>
+                );
+              })}
+              <Text style={[s.playerEmoji, p.invulnTimer > 0 && { opacity: 0.5 }]}>{p.emoji}</Text>
+              <View style={s.pHpBg}>
+                <View style={[s.pHp, { width: `${Math.max(0, (p.hp / p.maxHp) * 100)}%` }]} />
+              </View>
+              {p.abilityActive && <Text style={s.shieldIcon}>{'\u{1F6E1}\uFE0F'}</Text>}
+            </View>
+          </React.Fragment>
+        );
+      }
+      case 'pet': {
+        const pet = item.pet;
+        const pulse = 1 + Math.sin((frame + pet.id * 9) * 0.12) * 0.06;
+        const size = 24 + Math.min(10, pet.level * 1.1);
+        const flashScale = 1 + pet.attackFlash * 0.18;
+        const isPrime = pet.generation >= 3;
+        const isHighLevel = pet.level >= 5;
+        return (
+          <React.Fragment key={item.key}>
+            <GroundShadow x={pet.x} y={pet.y} radius={pet.radius * 1.1} />
+            <View
+              style={[
+                s.petWrap,
+                {
+                  left: pet.x - size / 2,
+                  top: pet.y - size / 2 + Math.sin((frame + pet.id) * 0.08) * 2,
+                  width: size,
+                  height: size,
+                  transform: [{ scale: pulse * flashScale }],
+                },
+              ]}
+            >
+              {/* Prime aura glow */}
+              {isPrime && (
+                <View style={[s.primeAura, {
+                  width: size * 1.6,
+                  height: size * 1.6,
+                  borderRadius: size * 0.8,
+                  borderColor: `${pet.color}88`,
+                  backgroundColor: `${pet.color}15`,
+                  opacity: 0.6 + Math.sin(frame * 0.08 + pet.id) * 0.2,
+                }]} />
+              )}
+              {/* High-level glow */}
+              {isHighLevel && !isPrime && (
+                <View style={[s.highLevelGlow, {
+                  width: size * 1.3,
+                  height: size * 1.3,
+                  borderRadius: size * 0.65,
+                  backgroundColor: `${pet.color}10`,
+                  borderColor: `${pet.color}44`,
+                }]} />
+              )}
+              {pet.attackFlash > 0 && (
+                <View
+                  style={[
+                    pet.action === 'heal' ? s.petHealBloom : s.petAttackLine,
+                    {
+                      backgroundColor: `${pet.color}${pet.action === 'heal' ? '22' : 'AA'}`,
+                      borderColor: `${pet.color}77`,
+                      opacity: pet.attackFlash,
+                      transform: pet.action === 'heal' ? [{ scale: 1 + (1 - pet.attackFlash) * 0.8 }] : [{ rotate: `${pet.aimAngle}rad` }, { scaleX: 1 + (1 - pet.attackFlash) * 0.8 }],
+                    },
+                  ]}
+                />
+              )}
+              <View style={[s.petWake, { backgroundColor: `${pet.color}18`, borderColor: `${pet.color}55` }]} />
+              <Text style={[s.petEmoji, { fontSize: 18 + Math.min(8, pet.level) }]}>{pet.emoji}</Text>
+              {pet.level > 1 && <Text style={[s.petBadge, { backgroundColor: pet.color }]}> {pet.level} </Text>}
+              {/* Perk count indicator */}
+              {(pet.perks?.length ?? 0) > 0 && (
+                <View style={[s.perkDots]}>
+                  {pet.perks.map((pk, pi) => (
+                    <View key={pi} style={[s.perkDot, { backgroundColor: pet.color }]} />
+                  ))}
+                </View>
+              )}
+            </View>
+          </React.Fragment>
+        );
+      }
+      default:
+        return null;
+    }
+  }
+
+  return (
+    <View style={s.viewport} pointerEvents="none">
+      <View style={[s.world, { transform: [
+        { translateX: tx }, { translateY: ty },
+        { translateX: sw / 2 }, { translateY: sh / 2 },
+        { scale: zoomScale },
+        { translateX: -sw / 2 }, { translateY: -sh / 2 },
+      ] }]}>
+        <ArenaBackground
+          width={arena.width}
+          height={arena.height}
+          frame={bgFrame}
+          camera={camera}
+          sw={sw}
+          sh={sh}
+          simpleMode={crowded}
+        />
+        {/* Parallax background (Phase 2 #3): distant → mid → foreground, all
+            behind entities. Each layer counter-translates against the camera
+            so it slides at its own fraction of the camera speed. */}
+        <View pointerEvents="none" style={[s.parallaxLayer, { transform: [{ translateX: camera.x * 0.85 }, { translateY: camera.y * 0.85 }] }]}>
+          {PARALLAX_DISTANT.map(d => (
+            <View key={`pd-${d.id}`} style={[s.silhouetteBlob, {
+              left: d.x,
+              top: d.y,
+              width: d.w,
+              height: d.h,
+              borderRadius: d.h * d.r,
+              opacity: d.o,
+            }]} />
+          ))}
+        </View>
+        <View pointerEvents="none" style={[s.parallaxLayer, { transform: [{ translateX: camera.x * 0.55 }, { translateY: camera.y * 0.55 }] }]}>
+          {PARALLAX_MID.map(m => (
+            <Text key={`pm-${m.id}`} style={[s.midProp, {
+              left: m.x,
+              top: m.y + Math.sin((frame + m.id * 13) * 0.02) * 2,
+              fontSize: m.size,
+              opacity: m.o,
+            }]}>{m.emoji}</Text>
+          ))}
+        </View>
+        <View pointerEvents="none" style={[s.parallaxLayer, { transform: [{ translateX: camera.x * 0.08 }, { translateY: camera.y * 0.08 }] }]}>
+          {PARALLAX_FORE.map(f => (
+            <Text key={`pf-${f.id}`} style={[s.foreProp, {
+              left: f.x + Math.sin(frame * f.sway + f.id * 3) * f.amp,
+              top: f.y + Math.cos(frame * f.sway * 0.7 + f.id * 5) * f.amp * 0.5,
+              fontSize: f.size,
+              opacity: f.o,
+            }]}>{f.emoji}</Text>
+          ))}
+        </View>
+        {/* Ground pass — Y-sorted entities (Phase 2 #2) */}
+        {groundItems.map(item => renderGroundItem(item))}
         {/* Projectiles with afterimage trails */}
         {displayProjectiles.map(pr => {
           const isEvolved = !pr.isEnemy && (pr.emoji === '🔥' || pr.emoji === '🌩️' || pr.emoji === '⇒');
@@ -560,106 +881,6 @@ export default function GameCanvas({ gameState, frame }: Props) {
             />
           );
         })}
-        {/* Player */}
-        <View style={[s.playerWrap, { left: p.x - 24, top: p.y - 32 }]}>
-          {visibleWeaponSprites.map((weapon, i) => {
-            const count = visibleWeaponSprites.length;
-            const angle = frame * 0.025 + i * ((Math.PI * 2) / Math.max(1, count));
-            const radius = 28 + Math.min(8, count * 2);
-            const x = 24 + Math.cos(angle) * radius;
-            const y = 23 + Math.sin(angle) * radius * 0.46;
-            return (
-              <View
-                key={`${weapon.id}-${i}`}
-                style={[
-                  s.playerWeaponSprite,
-                  {
-                    left: x - 14,
-                    top: y - 14,
-                    opacity: 0.78 + Math.sin(frame * 0.08 + i) * 0.08,
-                    transform: [{ rotate: `${angle * 0.4}rad` }, { scale: weapon.evolved ? 1.12 : 1 }],
-                  },
-                ]}
-              >
-                <WeaponIcon id={weapon.id} evolved={weapon.evolved} size={28} />
-              </View>
-            );
-          })}
-          <Text style={[s.playerEmoji, p.invulnTimer > 0 && { opacity: 0.5 }]}>{p.emoji}</Text>
-          <View style={s.pHpBg}>
-            <View style={[s.pHp, { width: `${Math.max(0, (p.hp / p.maxHp) * 100)}%` }]} />
-          </View>
-          {p.abilityActive && <Text style={s.shieldIcon}>{'\u{1F6E1}\uFE0F'}</Text>}
-        </View>
-        {/* Companions */}
-        {(pets ?? []).filter(pet => vis(pet.x, pet.y)).map(pet => {
-          const pulse = 1 + Math.sin((frame + pet.id * 9) * 0.12) * 0.06;
-          const size = 24 + Math.min(10, pet.level * 1.1);
-          const flashScale = 1 + pet.attackFlash * 0.18;
-          const isPrime = pet.generation >= 3;
-          const isHighLevel = pet.level >= 5;
-          return (
-            <View
-              key={pet.id}
-              style={[
-                s.petWrap,
-                {
-                  left: pet.x - size / 2,
-                  top: pet.y - size / 2 + Math.sin((frame + pet.id) * 0.08) * 2,
-                  width: size,
-                  height: size,
-                  transform: [{ scale: pulse * flashScale }],
-                },
-              ]}
-            >
-              {/* Prime aura glow */}
-              {isPrime && (
-                <View style={[s.primeAura, {
-                  width: size * 1.6,
-                  height: size * 1.6,
-                  borderRadius: size * 0.8,
-                  borderColor: `${pet.color}88`,
-                  backgroundColor: `${pet.color}15`,
-                  opacity: 0.6 + Math.sin(frame * 0.08 + pet.id) * 0.2,
-                }]} />
-              )}
-              {/* High-level glow */}
-              {isHighLevel && !isPrime && (
-                <View style={[s.highLevelGlow, {
-                  width: size * 1.3,
-                  height: size * 1.3,
-                  borderRadius: size * 0.65,
-                  backgroundColor: `${pet.color}10`,
-                  borderColor: `${pet.color}44`,
-                }]} />
-              )}
-              {pet.attackFlash > 0 && (
-                <View
-                  style={[
-                    pet.action === 'heal' ? s.petHealBloom : s.petAttackLine,
-                    {
-                      backgroundColor: `${pet.color}${pet.action === 'heal' ? '22' : 'AA'}`,
-                      borderColor: `${pet.color}77`,
-                      opacity: pet.attackFlash,
-                      transform: pet.action === 'heal' ? [{ scale: 1 + (1 - pet.attackFlash) * 0.8 }] : [{ rotate: `${pet.aimAngle}rad` }, { scaleX: 1 + (1 - pet.attackFlash) * 0.8 }],
-                    },
-                  ]}
-                />
-              )}
-              <View style={[s.petWake, { backgroundColor: `${pet.color}18`, borderColor: `${pet.color}55` }]} />
-              <Text style={[s.petEmoji, { fontSize: 18 + Math.min(8, pet.level) }]}>{pet.emoji}</Text>
-              {pet.level > 1 && <Text style={[s.petBadge, { backgroundColor: pet.color }]}> {pet.level} </Text>}
-              {/* Perk count indicator */}
-              {(pet.perks?.length ?? 0) > 0 && (
-                <View style={[s.perkDots]}>
-                  {pet.perks.map((pk, pi) => (
-                    <View key={pi} style={[s.perkDot, { backgroundColor: pet.color }]} />
-                  ))}
-                </View>
-              )}
-            </View>
-          );
-        })}
         {/* Death particles */}
         {displayDeathParticles.map(dp => {
           const prog = 1 - (dp.t / dp.maxT);
@@ -785,6 +1006,11 @@ const s = StyleSheet.create({
   submergeOverlay: { ...StyleSheet.absoluteFillObject, zIndex: 3, backgroundColor: 'rgba(8,47,73,0.14)' },
   submergeVignette: { ...StyleSheet.absoluteFillObject, borderWidth: 22, borderColor: 'rgba(14,116,144,0.22)', backgroundColor: 'transparent' },
   entity: { position: 'absolute', textAlign: 'center' },
+  groundShadow: { position: 'absolute', backgroundColor: 'rgba(2,6,23,0.55)' },
+  parallaxLayer: { position: 'absolute', left: 0, top: 0 },
+  silhouetteBlob: { position: 'absolute', backgroundColor: 'rgba(2,6,23,0.75)', borderWidth: 1, borderColor: 'rgba(148,163,184,0.07)' },
+  midProp: { position: 'absolute', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
+  foreProp: { position: 'absolute', textShadowColor: 'rgba(0,0,0,0.7)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 5 },
   hazardWrap: { position: 'absolute', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(251,146,60,0.38)', backgroundColor: 'rgba(251,146,60,0.07)' },
   hazardPulse: { position: 'absolute', borderWidth: 2, borderColor: 'rgba(251,146,60,0.42)', backgroundColor: 'rgba(251,146,60,0.08)' },
   hazardEmoji: { fontSize: 24, textShadowColor: 'rgba(0,0,0,0.8)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
@@ -797,7 +1023,6 @@ const s = StyleSheet.create({
   nodeHp: { height: 3, backgroundColor: '#2DD4BF', borderRadius: 2 },
   pickup: { textShadowColor: 'rgba(45,212,191,0.75)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 6 },
   enemyWrap: { position: 'absolute', alignItems: 'center' },
-  enemyShadow: { position: 'absolute', backgroundColor: 'rgba(15,23,42,0.7)' },
   enemyHitPop: { position: 'absolute' },
   enemyEmoji: { textShadowColor: 'rgba(0,0,0,0.95)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 6 },
   enemyEmojiHit: { textShadowColor: 'rgba(248,250,252,0.9)', textShadowOffset: { width: 0, height: 0 }, textShadowRadius: 8 },
