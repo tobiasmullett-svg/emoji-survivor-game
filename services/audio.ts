@@ -5,7 +5,7 @@ import * as Haptics from 'expo-haptics';
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-type SoundName =
+export type SoundName =
   | 'shoot' | 'shootFast' | 'shootHeavy' | 'melee'
   | 'hit' | 'crit' | 'kill' | 'deepKill' | 'explosion'
   | 'pickup' | 'pickupMat' | 'heal' | 'levelup'

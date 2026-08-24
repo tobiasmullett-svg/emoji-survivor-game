@@ -28,11 +28,11 @@ No lint script is configured in `package.json`; TypeScript strict-mode checking 
 
 ### Testing
 
-Jest is configured via `jest-expo` in devDependencies, but no test files currently exist in the codebase.
+Jest is configured via `jest-expo`. Run the suite with `yarn test` (or `npx jest --runInBand`). Tests live in `__tests__/` (scoring, progression, storage) and `engine/__tests__/` (GameEngine, math). The engine is side-effect-free, so it can be driven headlessly in tests; use `setRng` from `engine/math.ts` to make runs deterministic.
 
 ### Key directories
 
 - `app/` — Expo Router screens (main menu, character select, game, high scores, progression)
-- `engine/` — Pure TypeScript game engine (state, loop, math, data, achievements)
+- `engine/` — Pure TypeScript game engine (state, loop, math, data, achievements). It performs no I/O: sound/haptic side effects are pushed onto `GameState.events` and drained by the UI layer (`drainEvents`), and randomness goes through the injectable `rng` in `math.ts`.
 - `components/` — React Native UI components (canvas, HUD, joystick, overlays)
-- `services/` — Audio (Web Audio synth) and storage (AsyncStorage wrapper)
+- `services/` — Audio (Web Audio synth), haptics, and storage (AsyncStorage wrapper)

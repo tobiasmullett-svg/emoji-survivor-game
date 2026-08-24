@@ -15,6 +15,7 @@ export interface Achievement {
   description: string;
   emoji: string;
   condition: (stats: AchievementStats) => boolean;
+  pearlReward: number;
 }
 
 export interface AchievementStats {
@@ -36,20 +37,20 @@ export interface AchievementProgress {
 }
 
 export const ACHIEVEMENTS: Achievement[] = [
-  { id: 'first_blood', name: 'First Blood', description: 'Kill your first enemy', emoji: '🩸', condition: s => s.kills >= 1 },
-  { id: 'kill_100', name: 'Centurion', description: 'Kill 100 enemies in one run', emoji: '💯', condition: s => s.kills >= 100 },
-  { id: 'kill_500', name: 'Massacre', description: 'Kill 500 enemies in one run', emoji: '🔥', condition: s => s.kills >= 500 },
-  { id: 'wave_5', name: 'Survivor', description: 'Reach wave 5', emoji: '🌊', condition: s => s.wave >= 5 },
-  { id: 'wave_10', name: 'Veteran', description: 'Reach wave 10', emoji: '⚔️', condition: s => s.wave >= 10 },
-  { id: 'wave_15', name: 'Legend', description: 'Reach wave 15', emoji: '👑', condition: s => s.wave >= 15 },
-  { id: 'wave_20', name: 'Ocean Master', description: 'Complete all 20 waves', emoji: '🏆', condition: s => s.wave >= 20 },
-  { id: 'big_combo', name: 'Combo King', description: 'Reach a 32x combo', emoji: '⚡', condition: s => s.comboBest >= 32 },
-  { id: 'rich', name: 'Hoarder', description: 'Collect 500 materials in one run', emoji: '💰', condition: s => s.materials >= 500 },
-  { id: 'damage_10k', name: 'Destroyer', description: 'Deal 10,000 damage in one run', emoji: '💥', condition: s => s.damageDealt >= 10000 },
-  { id: 'elite_hunter', name: 'Elite Hunter', description: 'Kill 10 elite enemies', emoji: '🎯', condition: s => s.elitesKilled >= 10 },
-  { id: 'evolver', name: 'Evolver', description: 'Evolve 3 weapons in one run', emoji: '🔮', condition: s => s.evolvedWeapons >= 3 },
-  { id: 'speedster', name: 'Speedster', description: 'Reach wave 10 in under 5 minutes', emoji: '⏱️', condition: s => s.wave >= 10 && s.time < 300 },
-  { id: 'untouchable', name: 'Untouchable', description: 'Reach wave 5 without taking damage', emoji: '🛡️', condition: s => s.wave >= 5 && s.noHitRun },
+  { id: 'first_blood', name: 'First Blood', description: 'Kill your first enemy', emoji: '🩸', condition: s => s.kills >= 1, pearlReward: 2 },
+  { id: 'kill_100', name: 'Centurion', description: 'Kill 100 enemies in one run', emoji: '💯', condition: s => s.kills >= 100, pearlReward: 10 },
+  { id: 'kill_500', name: 'Massacre', description: 'Kill 500 enemies in one run', emoji: '🔥', condition: s => s.kills >= 500, pearlReward: 25 },
+  { id: 'wave_5', name: 'Survivor', description: 'Reach wave 5', emoji: '🌊', condition: s => s.wave >= 5, pearlReward: 5 },
+  { id: 'wave_10', name: 'Veteran', description: 'Reach wave 10', emoji: '⚔️', condition: s => s.wave >= 10, pearlReward: 15 },
+  { id: 'wave_15', name: 'Legend', description: 'Reach wave 15', emoji: '👑', condition: s => s.wave >= 15, pearlReward: 25 },
+  { id: 'wave_20', name: 'Ocean Master', description: 'Complete all 20 waves', emoji: '🏆', condition: s => s.wave >= 20, pearlReward: 50 },
+  { id: 'big_combo', name: 'Combo King', description: 'Reach a 32x combo', emoji: '⚡', condition: s => s.comboBest >= 32, pearlReward: 10 },
+  { id: 'rich', name: 'Hoarder', description: 'Collect 500 materials in one run', emoji: '💰', condition: s => s.materials >= 500, pearlReward: 10 },
+  { id: 'damage_10k', name: 'Destroyer', description: 'Deal 10,000 damage in one run', emoji: '💥', condition: s => s.damageDealt >= 10000, pearlReward: 15 },
+  { id: 'elite_hunter', name: 'Elite Hunter', description: 'Kill 10 elite enemies', emoji: '🎯', condition: s => s.elitesKilled >= 10, pearlReward: 15 },
+  { id: 'evolver', name: 'Evolver', description: 'Evolve 3 weapons in one run', emoji: '🔮', condition: s => s.evolvedWeapons >= 3, pearlReward: 20 },
+  { id: 'speedster', name: 'Speedster', description: 'Reach wave 10 in under 5 minutes', emoji: '⏱️', condition: s => s.wave >= 10 && s.time < 300, pearlReward: 20 },
+  { id: 'untouchable', name: 'Untouchable', description: 'Reach wave 5 without taking damage', emoji: '🛡️', condition: s => s.wave >= 5 && s.noHitRun, pearlReward: 25 },
 ];
 
 /**
@@ -89,6 +90,10 @@ export async function checkAchievements(stats: AchievementStats, overrideProfile
   
   if (newlyUnlocked.length > 0) {
     await AsyncStorage.setItem(key, JSON.stringify(progress));
+    const { addPearls } = require('./progression');
+    for (const ach of newlyUnlocked) {
+      if (ach.pearlReward) await addPearls(ach.pearlReward, overrideProfileId);
+    }
   }
   
   return newlyUnlocked;
@@ -116,14 +121,20 @@ export async function persistUnlockedAchievements(achievements: Achievement[], o
   try {
     const key = await resolveKey(overrideProfileId);
     const progress = await getAchievementProgress(overrideProfileId);
-    let changed = false;
+    const newlyUnlocked: Achievement[] = [];
     for (const a of achievements) {
       if (!progress[a.id]?.unlocked) {
         progress[a.id] = { id: a.id, unlocked: true, unlockedAt: new Date().toISOString() };
-        changed = true;
+        newlyUnlocked.push(a);
       }
     }
-    if (changed) await AsyncStorage.setItem(key, JSON.stringify(progress));
+    if (newlyUnlocked.length > 0) {
+      await AsyncStorage.setItem(key, JSON.stringify(progress));
+      const { addPearls } = require('./progression');
+      for (const ach of newlyUnlocked) {
+        if (ach.pearlReward) await addPearls(ach.pearlReward, overrideProfileId);
+      }
+    }
   } catch {
     // Silently fail
   }

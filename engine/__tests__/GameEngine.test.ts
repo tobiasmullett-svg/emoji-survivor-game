@@ -277,6 +277,7 @@ function makeTestEnemy(id: number, x: number, y: number, overrides: Partial<Enem
     telegraphTimer: 0, telegraphMax: 0, telegraphType: 'none',
     chargeTimer: 0, chargeCooldown: 0, chargeVx: 0, chargeVy: 0,
     fireTrailTimer: 0,
+    statusEffects: [],
     ...overrides,
   };
 }

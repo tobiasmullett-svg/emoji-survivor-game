@@ -176,6 +176,12 @@ export async function addRunToProgression(wave: number, kills: number, time: num
   return prog;
 }
 
+export async function addPearls(amount: number, overrideProfileId?: string): Promise<void> {
+  const prog = await getProgression(overrideProfileId);
+  prog.pearls += amount;
+  await saveProgression(prog, overrideProfileId);
+}
+
 export const BONUS_COSTS = {
   extraHp: [5, 10, 15, 20, 25],
   extraSpeed: [5, 10, 15, 20, 25],

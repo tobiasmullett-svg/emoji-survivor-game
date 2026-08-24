@@ -1,8 +1,19 @@
 import type { Vec2 } from './math';
+import type { SoundName } from '../services/audio';
+import type { HapticKind } from '../services/haptics';
+
+/**
+ * Side effects the engine wants the platform layer to perform after a tick.
+ * The engine stays pure by pushing these onto `GameState.events` instead of
+ * calling audio/haptics services directly; the UI drains and dispatches them.
+ */
+export type GameEvent =
+  | { kind: 'sound'; id: SoundName }
+  | { kind: 'haptic'; id: HapticKind };
 
 export type CharacterId = 'crab' | 'octopus' | 'squid';
 export type GamePhase = 'waveAnnounce' | 'playing' | 'collecting' | 'shopping' | 'levelup' | 'relic' | 'paused' | 'gameover';
-export type EnemyType = 'chaser' | 'spitter' | 'swarmer' | 'golem' | 'ghost' | 'fireElem' | 'charger';
+export type EnemyType = 'chaser' | 'spitter' | 'swarmer' | 'golem' | 'ghost' | 'fireElem' | 'charger' | 'jellyfish' | 'bossKraken' | 'bossLeviathan' | 'bossAbyssalLord' | 'bossTideEmperor';
 export type WeaponId = 'stick' | 'sword' | 'claw' | 'pistol' | 'smg' | 'shotgun' | 'crossbow' | 'lightning';
 export type ItemId = 'heart' | 'sneakers' | 'muscles' | 'shield' | 'clover' | 'energyDrink' | 'scope' | 'magnet' | 'piggyBank';
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'legendary';
@@ -56,6 +67,17 @@ export interface EquippedItem {
   rarity: Rarity;
 }
 
+export type StatusEffectType = 'burn' | 'freeze' | 'poison' | 'stun' | 'bleed';
+
+export interface EnemyStatusEffect {
+  type: StatusEffectType;
+  timer: number;
+  maxTime: number;
+  stacks: number;
+  damagePerTick?: number;
+  lastTick?: number;
+}
+
 export interface Enemy {
   id: number; type: EnemyType;
   x: number; y: number;
@@ -77,6 +99,7 @@ export interface Enemy {
   chargeVx: number;
   chargeVy: number;
   fireTrailTimer: number;
+  statusEffects: EnemyStatusEffect[];
 }
 
 export interface Projectile {
@@ -302,6 +325,8 @@ export interface GameState {
   obstacleBumpTimer: number;
   /** Min spacing between crit-triggered freeze frames, so rapid crit builds don't judder. */
   critStopCooldown: number;
+  /** Sound/haptic side effects queued this tick, drained by the UI layer. */
+  events: GameEvent[];
 }
 
 /** Separate movement and optional manual aiming input for a game tick. */
@@ -346,6 +371,7 @@ export interface HudData {
   materials: number; level: number; xp: number; xpToNext: number;
   abilityCd: number; abilityMaxCd: number; abilityEmoji: string;
   comboCount: number; comboTimer: number; comboMaxTime: number; bestCombo: number;
+  comboTier?: 'none' | 'bronze' | 'silver' | 'gold' | 'platinum';
   petCount: number; resourceCount: number;
   phase: GamePhase;
   equippedWeapons: { id: WeaponId; emoji: string; evolved: boolean; killCount: number; evolveKills: number; level: number; maxLevel: number }[];

@@ -6,10 +6,11 @@ import { useIsFocused } from '@react-navigation/native';
 import type { GameState, GamePhase, HudData, CharacterId } from '../engine/types';
 import { Vec2 } from '../engine/math';
 import {
-  initGameState, updateGame, extractHudData,
+  initGameState, updateGame, extractHudData, drainEvents,
   activateAbility, pauseGame, resumeGame,
   applyLevelUpChoice, applyRelicChoice, startNextWave,
 } from '../engine/GameEngine';
+import { haptic } from '../services/haptics';
 import { saveHighScore, getActiveProfile, updateProfile } from '../services/storage';
 import { CHARACTERS, WEAPONS, EVOLVED_WEAPONS, ITEM_DEFS } from '../engine/data';
 import { playSound, resumeAudio, setGameAmbient, stopGameAmbient } from '../services/audio';
@@ -269,6 +270,15 @@ export default function GameScreen() {
               playSound('waveStart');
             }
           }
+        }
+        // Drain engine-queued side effects (sounds/haptics) and dispatch them.
+        // Covers both tick events and any emitted by action handlers since the
+        // last frame.
+        const events = drainEvents(state);
+        for (let i = 0; i < events.length; i++) {
+          const ev = events[i];
+          if (ev.kind === 'sound') playSound(ev.id);
+          else haptic(ev.id);
         }
       }
       animationFrameId = requestAnimationFrame(loop);
