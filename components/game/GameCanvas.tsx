@@ -1,5 +1,6 @@
 import React, { useRef } from 'react';
 import { View, Text, StyleSheet } from 'react-native';
+import Svg, { Ellipse } from 'react-native-svg';
 import type {
   GameState,
   Enemy,
@@ -10,7 +11,8 @@ import type {
   HatchAnimation,
 } from '../../engine/types';
 import { ELITE_EMOJIS, ELITE_COLORS } from '../../engine/data';
-import { CRIT_HIT_STOP } from '../../engine/constants';
+import type { ArenaObstacle } from '../../engine/constants';
+import { CRIT_HIT_STOP, ARENA_OBSTACLES } from '../../engine/constants';
 import { getPickupRange } from '../../engine/GameEngine';
 import ArenaBackground from './arena/ArenaBackground';
 import WeaponIcon, { hasWeaponIcon } from './WeaponIcon';
@@ -97,7 +99,70 @@ const PARALLAX_FORE = Array.from({ length: 12 }, (_, i) => ({
  * (projectiles, fx, death particles, dmg numbers) are NOT part of this pass —
  * they still draw on top.
  */
+/**
+ * Arena obstacles are solid: the engine pushes players, enemies and projectiles
+ * out of these ellipses (`engine/arena.ts`). They previously had no renderer at
+ * all, so the arena contained eight invisible walls that bumped you — complete
+ * with a screen shake — against nothing on screen.
+ *
+ * Drawn deliberately opaque, with a rim and a recognisable emoji, so they read
+ * as objects standing on the sea floor rather than as flat translucent shapes.
+ */
+const OBSTACLE_STYLES: Record<ArenaObstacle['kind'], {
+  fill: string; stroke: string; highlight: string; emoji: string;
+}> = {
+  rock: { fill: 'rgba(51,65,85,0.94)', stroke: 'rgba(148,163,184,0.55)', highlight: 'rgba(148,163,184,0.20)', emoji: '🪨' },
+  coral: { fill: 'rgba(136,45,23,0.92)', stroke: 'rgba(251,146,60,0.55)', highlight: 'rgba(251,146,60,0.20)', emoji: '🪸' },
+  barrel: { fill: 'rgba(68,64,60,0.94)', stroke: 'rgba(168,162,158,0.55)', highlight: 'rgba(214,211,209,0.18)', emoji: '🛢️' },
+};
+
+/** One obstacle: contact shadow, solid ellipse body, lit top face, emoji. */
+function ObstacleSprite({ o }: { o: ArenaObstacle }) {
+  const style = OBSTACLE_STYLES[o.kind];
+  // Padding keeps the 2px stroke from being clipped by the SVG viewport.
+  const pad = 4;
+  const cx = o.rx + pad;
+  const cy = o.ry + pad;
+  return (
+    // testID is how the render test identifies an obstacle: the rock and coral
+    // emoji also appear in the background decor, so matching on emoji alone
+    // cannot distinguish a drawn obstacle from scenery.
+    <View pointerEvents="none" testID={`arena-obstacle-${o.kind}`}>
+      <View
+        style={[s.obstacleShadow, {
+          left: o.x - o.rx * 0.98,
+          top: o.y + o.ry * 0.30,
+          width: o.rx * 1.96,
+          height: o.ry * 0.60,
+          borderRadius: o.ry * 0.30,
+        }]}
+      />
+      <Svg
+        width={o.rx * 2 + pad * 2}
+        height={o.ry * 2 + pad * 2}
+        style={[s.obstacleBody, { left: o.x - o.rx - pad, top: o.y - o.ry - pad }]}
+      >
+        <Ellipse cx={cx} cy={cy} rx={o.rx} ry={o.ry} fill={style.fill} stroke={style.stroke} strokeWidth={2} />
+        {/* Offset upward so the object reads as lit from above, matching the
+            ground-shadow convention used for entities. */}
+        <Ellipse cx={cx} cy={cy - o.ry * 0.30} rx={o.rx * 0.70} ry={o.ry * 0.46} fill={style.highlight} />
+      </Svg>
+      <Text
+        style={[s.obstacleEmoji, {
+          left: o.x - o.rx,
+          top: o.y - o.ry * 0.62,
+          width: o.rx * 2,
+          fontSize: Math.min(o.rx, o.ry) * 1.15,
+        }]}
+      >
+        {style.emoji}
+      </Text>
+    </View>
+  );
+}
+
 type GroundItem =
+  | { kind: 'obstacle'; key: string; y: number; o: ArenaObstacle }
   | { kind: 'hazard'; key: string; y: number; h: HazardZone }
   | { kind: 'node'; key: string; y: number; n: ResourceNode }
   | { kind: 'pickup'; key: string; y: number; pk: Pickup }
@@ -188,6 +253,11 @@ export default function GameCanvas({ gameState, frame }: Props) {
   const vMinY = camera.y - sh / 2 - 60;
   const vMaxY = camera.y + sh / 2 + 60;
   const vis = (x: number, y: number) => x >= vMinX && x <= vMaxX && y >= vMinY && y <= vMaxY;
+  // Obstacles are large enough that their centre can be off-screen while part
+  // of the body is still visible, so they need a rect test, not a point test.
+  const visRect = (x: number, y: number, w: number, h: number) => (
+    x + w >= vMinX && x <= vMaxX && y + h >= vMinY && y <= vMaxY
+  );
   const visibleHazards = (hazards ?? []).filter(h => vis(h.x, h.y));
   const visibleResourceNodes = (resourceNodes ?? []).filter(n => n.alive && vis(n.x, n.y));
   const visiblePickups = (pickups ?? []).filter(pk => vis(pk.x, pk.y));
@@ -214,6 +284,13 @@ export default function GameCanvas({ gameState, frame }: Props) {
   // pushed with its world y, then sorted ascending so the bottom-most draws
   // last (in front). Ties are broken by key for a deterministic order.
   const groundItems: GroundItem[] = [];
+  // Obstacles join the Y-sort rather than sitting in the background layer, so
+  // an entity below one draws in front of it and an entity above draws behind.
+  for (let i = 0; i < ARENA_OBSTACLES.length; i++) {
+    const o = ARENA_OBSTACLES[i];
+    if (!visRect(o.x - o.rx, o.y - o.ry, o.rx * 2, o.ry * 2)) continue;
+    groundItems.push({ kind: 'obstacle', key: `obstacle-${i}`, y: o.y, o });
+  }
   for (const h of visibleHazards) groundItems.push({ kind: 'hazard', key: `hazard-${h.id}`, y: h.y, h });
   for (const n of visibleResourceNodes) groundItems.push({ kind: 'node', key: `node-${n.id}`, y: n.y, n });
   for (const pk of visiblePickups) groundItems.push({ kind: 'pickup', key: `pickup-${pk.id}`, y: pk.y, pk });
@@ -225,6 +302,8 @@ export default function GameCanvas({ gameState, frame }: Props) {
 
   function renderGroundItem(item: GroundItem): React.ReactNode {
     switch (item.kind) {
+      case 'obstacle':
+        return <ObstacleSprite key={item.key} o={item.o} />;
       case 'hazard': {
         const h = item.h;
         const pulse = 0.5 + Math.sin(h.pulse) * 0.18;
@@ -1012,6 +1091,9 @@ const s = StyleSheet.create({
   submergeVignette: { ...StyleSheet.absoluteFillObject, borderWidth: 22, borderColor: 'rgba(14,116,144,0.22)', backgroundColor: 'transparent' },
   entity: { position: 'absolute', textAlign: 'center' },
   groundShadow: { position: 'absolute', backgroundColor: 'rgba(2,6,23,0.55)' },
+  obstacleShadow: { position: 'absolute', backgroundColor: 'rgba(2,6,23,0.42)' },
+  obstacleBody: { position: 'absolute' },
+  obstacleEmoji: { position: 'absolute', textAlign: 'center', textShadowColor: 'rgba(0,0,0,0.55)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 5 },
   parallaxLayer: { position: 'absolute', left: 0, top: 0 },
   // No border: the outline was the main thing making these read as panels.
   silhouetteBlob: { position: 'absolute', backgroundColor: 'rgba(2,6,23,0.75)' },
