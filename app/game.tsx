@@ -56,6 +56,25 @@ function getRouteCharacterId(value: string | string[] | undefined): string | und
   return Array.isArray(value) ? value[0] : value;
 }
 
+/**
+ * Which control scheme to show, decided by input capability rather than by
+ * platform. The web build also runs on phones, where there is no keyboard or
+ * mouse to fall back on — gating the joystick on `Platform.OS !== 'web'` left
+ * touch players with no movement input at all.
+ *
+ * A coarse pointer is the signal: it is true for phones and tablets and false
+ * for a touchscreen laptop, which still has a real keyboard and should keep the
+ * desktop scheme.
+ */
+function detectTouchControls(): boolean {
+  if (Platform.OS !== 'web') return true;
+  if (typeof window === 'undefined' || typeof navigator === 'undefined') return false;
+  if (typeof window.matchMedia === 'function') {
+    return window.matchMedia('(pointer: coarse)').matches;
+  }
+  return (navigator.maxTouchPoints ?? 0) > 0;
+}
+
 function resolvePlayableCharacterId(requestedId: string | undefined, unlockedCharacters: string[]): CharacterId {
   const requestedCharacter = CHARACTERS.find(c => c.id === requestedId)?.id;
   if (requestedCharacter && unlockedCharacters.includes(requestedCharacter)) return requestedCharacter;
@@ -97,7 +116,10 @@ export default function GameScreen() {
   const [achievementToast, setAchievementToast] = useState<Achievement[]>([]);
   const [runAchievements, setRunAchievements] = useState<Achievement[]>([]);
   const [initializedRunKey, setInitializedRunKey] = useState<string | null>(null);
-  const [showControlsHint, setShowControlsHint] = useState<boolean>(Platform.OS === 'web');
+  // Decided once on mount: the pointer type does not change mid-session, and
+  // re-reading it per render would thrash the control scheme.
+  const [useTouchControls] = useState(detectTouchControls);
+  const [showControlsHint, setShowControlsHint] = useState<boolean>(Platform.OS === 'web' && !detectTouchControls());
   const [showTutorial, setShowTutorial] = useState(false);
   // Screen-edge flash shown briefly on combo tier-up (spec §1.6).
   const [comboFlash, setComboFlash] = useState<{ tier: ComboTier; id: number } | null>(null);
@@ -630,7 +652,7 @@ export default function GameScreen() {
           <HUD data={activeHudData} onPause={handlePause} />
           {inputEnabled && (
             <>
-              {Platform.OS === 'web' ? (
+              {!useTouchControls ? (
                 <AbilityButton
                   emoji={activeHudData?.abilityEmoji ?? '\u2B50'}
                   cooldown={activeHudData?.abilityCd ?? 0}

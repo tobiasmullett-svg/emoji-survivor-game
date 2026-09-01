@@ -126,7 +126,12 @@ export interface EnemyStatusEffect {
   maxTime: number;
   stacks: number;
   damagePerTick?: number;
-  lastTick?: number;
+  /**
+   * Countdown to this effect's next damage tick. Owned by the effect itself so
+   * that re-applying it (which refreshes `timer`/`maxTime`) never stalls or
+   * resets the damage cadence.
+   */
+  tickTimer?: number;
 }
 
 export interface Enemy {

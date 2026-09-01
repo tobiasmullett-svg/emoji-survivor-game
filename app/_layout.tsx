@@ -1,7 +1,55 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
-import { View, Text, StyleSheet } from 'react-native';
+import { View, Text, StyleSheet, Platform } from 'react-native';
+
+/**
+ * Stop the browser claiming touch gestures the game needs.
+ *
+ * A twin-stick grip puts two fingers on the screen at once, which a browser
+ * reads as a pinch and answers by zooming the page — so the movement and aim
+ * pads could not be used together at all.
+ *
+ * This runs at runtime rather than living in `app/+html.tsx` because the web
+ * build is `output: "single"` (an SPA), and `+html.tsx` only applies to static
+ * rendering — a file there is silently ignored.
+ */
+function useWebTouchGestureReset(): void {
+  useEffect(() => {
+    if (Platform.OS !== 'web' || typeof document === 'undefined') return;
+
+    // `user-scalable=no` + a locked scale covers Android Chrome. iOS Safari
+    // ignores both, which is why the `touch-action` rule carries the real
+    // weight there.
+    const viewport = document.querySelector('meta[name="viewport"]');
+    const previousViewport = viewport?.getAttribute('content') ?? null;
+    viewport?.setAttribute(
+      'content',
+      'width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover',
+    );
+
+    // `pan-x pan-y` rather than `none`: omitting `pinch-zoom` from the list
+    // disables the pinch gesture while still letting scrollable UI (the shop
+    // list, high scores) scroll. `touch-action: none` would have killed those.
+    const style = document.createElement('style');
+    style.textContent = `
+      body {
+        touch-action: pan-x pan-y;
+        overscroll-behavior: none;
+        -webkit-user-select: none;
+        user-select: none;
+        -webkit-touch-callout: none;
+        -webkit-tap-highlight-color: transparent;
+      }
+    `;
+    document.head.appendChild(style);
+
+    return () => {
+      style.remove();
+      if (previousViewport !== null) viewport?.setAttribute('content', previousViewport);
+    };
+  }, []);
+}
 
 class ErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -31,6 +79,7 @@ const eb = StyleSheet.create({
 });
 
 export default function RootLayout() {
+  useWebTouchGestureReset();
   return (
     <ErrorBoundary>
       <View style={{ flex: 1, backgroundColor: '#050A15' }}>
