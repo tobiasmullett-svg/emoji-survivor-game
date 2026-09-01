@@ -64,8 +64,13 @@ const PARALLAX_DISTANT = Array.from({ length: 24 }, (_, i) => ({
   y: (i * 263 + 71) % 2300 - 150,
   w: 70 + (i % 5) * 26,
   h: 24 + (i % 4) * 12,
-  r: 0.35 + (i % 4) * 0.07,
-  o: 0.3 + (i % 3) * 0.12,
+  // Fully rounded: a stadium/rounded-rect silhouette reads as a UI panel lying
+  // on the sand rather than as distant scenery.
+  r: 0.5,
+  // Low alpha: this layer was tuned against the old flat #050A15 background,
+  // where a near-opaque navy shape read as a distant silhouette. On the sand
+  // ground albedo it reads as a grey blob instead, so it now only darkens.
+  o: 0.06 + (i % 3) * 0.03,
 }));
 const PARALLAX_MID = Array.from({ length: 16 }, (_, i) => ({
   id: i,
@@ -1008,7 +1013,8 @@ const s = StyleSheet.create({
   entity: { position: 'absolute', textAlign: 'center' },
   groundShadow: { position: 'absolute', backgroundColor: 'rgba(2,6,23,0.55)' },
   parallaxLayer: { position: 'absolute', left: 0, top: 0 },
-  silhouetteBlob: { position: 'absolute', backgroundColor: 'rgba(2,6,23,0.75)', borderWidth: 1, borderColor: 'rgba(148,163,184,0.07)' },
+  // No border: the outline was the main thing making these read as panels.
+  silhouetteBlob: { position: 'absolute', backgroundColor: 'rgba(2,6,23,0.75)' },
   midProp: { position: 'absolute', textShadowColor: 'rgba(0,0,0,0.6)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 4 },
   foreProp: { position: 'absolute', textShadowColor: 'rgba(0,0,0,0.7)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 5 },
   hazardWrap: { position: 'absolute', alignItems: 'center', justifyContent: 'center', borderWidth: 2, borderColor: 'rgba(251,146,60,0.38)', backgroundColor: 'rgba(251,146,60,0.07)' },
