@@ -817,34 +817,45 @@ export function applyStatusEffect(enemy: Enemy, type: StatusEffectType, duration
     existing.maxTime = Math.max(existing.maxTime, duration);
     if (existing.stacks < 5) existing.stacks++;
     if (damagePerTick) existing.damagePerTick = damagePerTick;
+    // `tickTimer` is deliberately left alone: a refresh extends the effect, it
+    // does not restart (or stall) its damage cadence.
   } else {
-    enemy.statusEffects.push({ type, timer: duration, maxTime: duration, stacks: 1, damagePerTick, lastTick: 0 });
+    enemy.statusEffects.push({ type, timer: duration, maxTime: duration, stacks: 1, damagePerTick, tickTimer: DOT_TICK_RATE });
   }
 }
 
+/** Seconds between damage ticks for every damage-over-time status effect. */
+const DOT_TICK_RATE = 0.5;
+const DOT_TYPES: readonly StatusEffectType[] = ['burn', 'poison', 'bleed'];
+
 function updateStatusEffects(state: GameState, e: Enemy, dt: number): void {
   if (!e.statusEffects) e.statusEffects = [];
-  e.statusEffects.forEach(effect => {
+  for (const effect of e.statusEffects) {
     effect.timer -= dt;
-    if (effect.type === 'burn' || effect.type === 'poison') {
-      const tickRate = 0.5;
-      if (effect.lastTick === undefined || effect.maxTime - effect.timer > effect.lastTick + tickRate) {
-        effect.lastTick = (effect.lastTick || 0) + tickRate;
-        if (effect.damagePerTick) {
-          let tickDmg = effect.damagePerTick * effect.stacks;
-          // Ignition (spec §1.1): a frozen/chilled enemy that takes fire damage
-          // burns at 2× burn rate. The freeze effect is still present this tick
-          // (it is filtered out only after the loop), so a simple lookup works.
-          if (effect.type === 'burn' && e.statusEffects.some(s => s.type === 'freeze')) {
-            tickDmg *= 2;
-          }
-          dealDamage(state, e, tickDmg, false);
-          if (effect.type === 'burn') addEffect(state, e.x, e.y + 10, 'smoke', '#EF4444', 0, e.radius);
-          if (effect.type === 'poison') addEffect(state, e.x, e.y + 10, 'smoke', '#10B981', 0, e.radius);
-        }
-      }
+    if (!DOT_TYPES.includes(effect.type) || !effect.damagePerTick) continue;
+    // Tick off the effect's own countdown rather than deriving elapsed time
+    // from `maxTime - timer` — a refresh moves both of those, which used to
+    // silence the effect for the length of its previous elapsed time.
+    effect.tickTimer = (effect.tickTimer ?? DOT_TICK_RATE) - dt;
+    if (effect.tickTimer > 0) continue;
+    effect.tickTimer += DOT_TICK_RATE;
+
+    let tickDmg = effect.damagePerTick * effect.stacks;
+    // Ignition (spec §1.1): a frozen/chilled enemy that takes fire damage
+    // burns at 2× burn rate. The freeze effect is still present this tick
+    // (it is filtered out only after the loop), so a simple lookup works.
+    if (effect.type === 'burn' && e.statusEffects.some(s => s.type === 'freeze')) {
+      tickDmg *= 2;
     }
-  });
+    // DoT ticks deal damage but apply no knockback — an impulse belongs to a
+    // weapon hit, and re-applying it every tick would keep the target pinned
+    // in the knockback state indefinitely.
+    dealDamage(state, e, tickDmg, false, undefined, false);
+    if (!e.alive) break;
+    if (effect.type === 'burn') addEffect(state, e.x, e.y + 10, 'smoke', '#EF4444', 0, e.radius);
+    else if (effect.type === 'poison') addEffect(state, e.x, e.y + 10, 'smoke', '#10B981', 0, e.radius);
+    else addEffect(state, e.x, e.y + 10, 'smoke', '#991B1B', 0, e.radius);
+  }
   e.statusEffects = e.statusEffects.filter(eff => eff.timer > 0);
 }
 
@@ -859,16 +870,14 @@ function updateEnemies(state: GameState, dt: number): void {
     const isStunned = e.statusEffects.some(s => s.type === 'stun');
     const isFrozen = e.statusEffects.some(s => s.type === 'freeze');
     const isPoisoned = e.statusEffects.some(s => s.type === 'poison');
-    const isBleeding = e.statusEffects.some(s => s.type === 'bleed');
 
-    // Knockback
+    // Knockback. Bleed damage is NOT applied here — it ticks in
+    // `updateStatusEffects` like every other DoT. Dealing it from this branch
+    // re-armed the knockback on every frame (dealDamage sets an impulse),
+    // which kept the enemy in this branch and made bleed self-sustaining.
     if (Math.abs(e.knockbackX) > 0.5 || Math.abs(e.knockbackY) > 0.5) {
       e.x += e.knockbackX * dt * 60;
       e.y += e.knockbackY * dt * 60;
-      if (isBleeding) {
-        dealDamage(state, e, 5 * dt * 60, false);
-        if (rng(0, 1) < 0.2) addEffect(state, e.x, e.y, 'smoke', '#991B1B', 0, e.radius);
-      }
       e.knockbackX *= (1 - KB_DECAY * dt);
       e.knockbackY *= (1 - KB_DECAY * dt);
     }
@@ -1280,7 +1289,14 @@ function fireSpecial(state: GameState, wDef: typeof WEAPONS[string], ws: WeaponS
   }
 }
 
-function dealDamage(state: GameState, enemy: Enemy, dmg: number, isCrit: boolean, sourceWeapon?: WeaponState): void {
+function dealDamage(
+  state: GameState,
+  enemy: Enemy,
+  dmg: number,
+  isCrit: boolean,
+  sourceWeapon?: WeaponState,
+  applyKnockback = true,
+): void {
   let damage = dmg;
   const wDef = sourceWeapon ? weaponDefFor(sourceWeapon) : undefined;
 
@@ -1315,7 +1331,9 @@ function dealDamage(state: GameState, enemy: Enemy, dmg: number, isCrit: boolean
       if (rng(0, 100) < 15) applyStatusEffect(enemy, 'stun', 1.5);
     }
     if (sourceWeapon.id === 'claw') {
-      if (rng(0, 100) < 25) applyStatusEffect(enemy, 'bleed', 5);
+      // 4/tick over 5s at DOT_TICK_RATE = 40 damage per application, stacking
+      // to 5. Tuning knob: bleed is the claw's whole identity.
+      if (rng(0, 100) < 25) applyStatusEffect(enemy, 'bleed', 5, 4);
     }
     // Elemental upgrades (spec §1.3): extra status chances by weapon element.
     const el = wDef?.element;
@@ -1390,7 +1408,7 @@ function dealDamage(state: GameState, enemy: Enemy, dmg: number, isCrit: boolean
   // Knockback
   const p = state.player;
   const d = dist(p, enemy);
-  if (d > 0.1) {
+  if (applyKnockback && d > 0.1) {
     const push = isCrit ? 10 : 5;
     enemy.knockbackX = ((enemy.x - p.x) / d) * push;
     enemy.knockbackY = ((enemy.y - p.y) / d) * push;
@@ -1443,6 +1461,12 @@ function destroyResourceNode(state: GameState, node: ResourceNode): void {
 
 function killEnemy(state: GameState, enemy: Enemy, sourceWeapon?: WeaponState): void {
   enemy.alive = false;
+  // Release any Lightning Rod mark held on this enemy. Marks are only consumed
+  // by a follow-up hit, so without this every enemy that dies while marked
+  // leaks its id for the rest of the run — and `dealDamage` scans the list on
+  // every single hit.
+  const markIdx = state.lightningRodMarks.indexOf(enemy.id);
+  if (markIdx >= 0) state.lightningRodMarks.splice(markIdx, 1);
   state.stats.enemiesKilled++;
   if (enemy.elite !== 'none') state.stats.elitesKilled++;
   state.wave.enemiesKilled++;
